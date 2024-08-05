@@ -6,46 +6,165 @@ import matplotlib.image as mpimg
 import pickle
 from torchviz import make_dot
 import torch.nn as nn
+from enum import Enum
 
-class Visualizer():
-    def __init__(self, file_path='./model2.pkl', output_graph_path="./visualizer", 
-                output_operational_graph_path='./visualizer', output_func_graph_path='./visualizer', excluded_params = ["weight"], threshold=100):
-        torch.set_printoptions(threshold=threshold)
-        node_attr = dict(style='filled',
-                            shape='box',
-                            align='left',
-                            fontsize='20',
-                            ranksep='0.1',
-                            height='1',
-                            width='1',
-                            fontname='monospace',
-                            label='')
-        edge_attr = dict(label="")
+class LayerType(Enum):
+    CONV1D=1
+    CONV2D=2
+    LINEAR=3
+
+class OperationType(Enum):
+    INPUT=1
+    MAC=2
+    ADD=3
+    MULT=4
+    OUTPUT=5
+    POOL=6
+    PADD=7
+    DILATION=8
+    CONST=9
+    UNKNOWN=0
+
+class Operation: # node
+    def __init__(self, name:str, type:OperationType=0, label:str="OP"):
+        self.name=name # unique
+        self.label=label
+        self.type=type
+        self.inputs=[]
+        self.outputs=[]
+    
+    def get_label(self):
+        return self.label
+
+    def add_input_name(self, name:str):
+        self.inputs.append(name)
+
+    def add_output_name(self, name:str):
+        self.outputs.append(name)
+
+class PaddOP(Operation):
+    def __init__(self, name:str, padding:int, label:str="Padding"):
+        super().__init__(name, OperationType.PADD, label)
+        self.padding = padding
+
+    def get_label(self):
+        return self.label + ": " + str(self.padding)
+
+class DilationOP(Operation):
+    def __init__(self, name:str, dilation:int, label:str="Dilation"):
+        super().__init__(name, OperationType.DILATION, label)
+        self.dilation = dilation
+
+    def get_label(self):
+        return self.label + ": " + str(self.dilation)
+
+class MacOP(Operation):
+    def __init__(self, name:str, input_index, weight_index, label:str="MAC"):
+        super().__init__(name, OperationType.MAC, label)
+        self.input_index=input_index
+        self.weight_index=weight_index
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\ninp" + str(self.input_index) 
+        printable += "\nweight" + str(self.weight_index)
+        return printable
+
+class ConstOP(Operation):
+    def __init__(self, name:str, shape:list, label:str="Const"):
+        super().__init__(name, OperationType.CONST, label)
+        self.shape = shape
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\nW" + str(self.size)
+        return printable
+
+class InputOP(Operation):
+    def __init__(self, name:str, shape:list, label:str="Input"):
+        super().__init__(name, OperationType.INPUT, label)
+        self.shape = shape
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\nX" + str(self.size)
+        return printable
+
+class OutputOP(Operation):
+    def __init__(self, name:str, shape:list, label:str="Output"):
+        super().__init__(name, OperationType.OUTPUT, label)
+        self.shape = shape
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\nX" + str(self.size)
+        return printable
+
+class Layer: # node
+    def __init__(self, name:str, type:LayerType, label:str="OP"):
+        self.name=name # unique
+        self.label=label
+        self.type=type
+        self.inputs=[]
+        self.outputs=[]
+    
+    def add_input_name(self, name:str):
+        self.inputs.append(name)
+
+    def add_output_name(self, name:str):
+        self.outputs.append(name)
+
+class Conv1dLayer(Layer):
+    def __init__(self, in_channels, out_channels, kernel_size, input_length,
+                stride=1, padding=1, dilation=1, bias=None, sparsity=0.0):
+        super().__init__(LayerType.LINEAR)
+        self.in_channels=in_channels
+        self.out_channels=out_channels
+        self.kernel_size = kernel_size
+        self.input_length = input_length
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.sparsity = sparsity
+        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size))
+        self.bias = nn.Parameter(torch.zeros(out_channels)) if bias is None else bias
+
+    def get_torch(self, x):
+        return nn.Conv1d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding
+            )
+
+    def _build_operations():
+        pass
+
+class LinearLayer(Layer):
+    def __init__(self, in_features, out_features, input_length):
+        super().__init__(LayerType.LINEAR)
+        self.in_features=in_features
+        self.out_features=out_features
+        self.input_length=input_length
+
+    def _build_operations():
+        pass
+
+class Graph():
+    def __init__(self, file_path='./model1.pkl', output_operational_graph_path='./visualizer', excluded_params = ["weight"]):
+
         self.types = ['conv1d', 'conv2d', 'linear']
 
-        self.nn_graph = graphviz.Digraph(node_attr=node_attr, edge_attr=edge_attr, graph_attr=dict(size="12,12"))
         self.graph_dict = {}
         self.file_path=file_path
         self.pkl_dump={}
         self.layer_names=[]
-        self.excluded = excluded_params
-        self.nn_graph.attr(dpi='300')
-        self.output_graph_path=output_graph_path
-        self.output_func_graph_path=output_func_graph_path
+        self.excluded = excluded_para
         self.output_operational_graph_path=output_operational_graph_path
     
-    def visualize(self, functions_graph=True, show_sublayers=True, show_func_attrs=False, display_after=False):
-        self._read_pkl()
-        self._read_layers()
-        self._build_graph(show_sublayers)
-
-        if functions_graph:
-            self._build_functions_graph(show_sublayers, show_func_attrs)
-
-        self._build_operational_graph()
-
-        if display_after:
-            self.dispay_img()
+    def visualize(self):
+        pass
 
     def _read_pkl(self):
         with open(self.file_path, 'rb') as file:
@@ -55,13 +174,6 @@ class Visualizer():
         self.layer_names = self.pkl_dump["modules"]
         for name in self.layer_names:
             self.graph_dict[name] = ""
-        # print(self.pkl_dump)
-
-    def _calc_sparsity(self, weights):
-        total_elements = weights.numel()
-        non_zero_elements = (abs(weights) != 0).sum().item() # fix
-        sparsity = 1 - (non_zero_elements / total_elements)
-        return sparsity
 
     def _read_layers(self):
         for name in self.layer_names:
@@ -129,55 +241,7 @@ class Visualizer():
 
         return y
 
-    def _build_functions_graph(self, show_sublayers=True, show_func_attrs=False):
-        dot = graphviz.Digraph()
-        names = []
-
-        for name in self.layer_names:
-            if not show_sublayers and name.count("."):
-                continue
-                
-            layer_torch = self._get_torch_layer(name)
-            if layer_torch is not None:
-                layer_dot = make_dot(layer_torch, 'cluster_'+name, show_attrs=show_func_attrs)
-                layer_dot.attr(name='cluster_'+str(name),
-                            label=self._get_layer_type(name),
-                            style='filled',
-                            color='lightgray', 
-                            penwidth='2')
-                dot.subgraph(graph=layer_dot)
-
-                subgraph_nodes = [node for node in layer_dot.body if not '->' in node]  # only nodes not edges
-
-                node_names = []
-                input_nodes = []
-                for node in subgraph_nodes:
-                    node_name = node.split(' ')[0]  # extract the node name
-                    if 'lightblue' in node:
-                        input_nodes.append(node_name)
-                    node_names.append(node_name)
-
-                if len(names):
-                    dot.edge(names[-1][1:], name)
-
-                for i in input_nodes:
-                    dot.node(name, 
-                            str(name) + '\n' 
-                            + 'type: ' + self._get_layer_type(name) + '\n'
-                            + str(self.pkl_dump[name]['_parameters']['weight'].shape))
-                    dot.edge(name, i[1:])
-
-                names.append(node_names[0])
-                
-            else:
-                if len(names):
-                    dot.edge(names[-1][1:], name)
-
-                names.append("\t"+str(name))
-        
-        dot.render(self.output_func_graph_path + '/functions_graph', format='png', cleanup=True) 
-
-    def _build_operational_layer(self, name, input_size=4):
+    def _build_operational_layer(self, name, input_size=14):
         dot = graphviz.Digraph('cluster_' + name)
 
         if self._get_layer_type(name) == 'conv1d':
@@ -301,30 +365,3 @@ class Visualizer():
                 names.append(str(name))
 
         dot.render(self.output_operational_graph_path + '/operational_graph', format='png', cleanup=True) 
-
-    def _build_graph(self, show_sublayers=True):
-        for key in self.graph_dict.keys():
-            if not show_sublayers and key.count("."):
-                continue
-            self.nn_graph.node(key, self.graph_dict[key])
-
-        previous_layer_name = None
-        for name in self.layer_names:
-            # print(self.pkl_dump[name])
-            if not show_sublayers and name.count("."):
-                continue
-
-            if previous_layer_name != None :
-                self.nn_graph.edge(previous_layer_name, name)
-            previous_layer_name = name
-
-        self.nn_graph.render(self.output_graph_path + "/graph", format="png")
-
-    def dispay_img(self):
-        img = mpimg.imread(self.output_graph_path)
-        plt.imshow(img)
-        plt.axis('off')
-        plt.show()
-
-viz = Visualizer()      
-viz.visualize()

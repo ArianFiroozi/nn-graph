@@ -3,135 +3,40 @@ digraph {
 	node [align=left fontname=monospace fontsize=20 height=1 label="" ranksep=0.1 shape=box style=filled width=1]
 	edge [label=""]
 	dpi=300
-	dense1 [label="dense1
+	conv1 [label="conv1
 
 bias: None
-in_features: 196
-out_features: 40
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-type: linear
-qb: None
+in_channels: 14
+out_channels: 8
+kernel_size: (3,)
+stride: (1,)
+padding: (0,)
+dilation: (1,)
+transposed: False
+output_padding: (0,)
+groups: 1
+padding_mode: zeros
+_reversed_padding_repeated_twice: (0, 0)
 sparsity: 0.0"]
-	"dense1.qw" [label="dense1.qw
+	pool [label="pool
 
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
+kernel_size: 2
+stride: 2
+padding: 0
+dilation: 1
+return_indices: False
+ceil_mode: False
 "]
-	"dense1.bact" [label="dense1.bact
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	dense2 [label="dense2
+	fc1 [label="fc1
 
 bias: None
-in_features: 40
-out_features: 16
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-type: linear
-qb: None
-sparsity: 0.0"]
-	"dense2.qw" [label="dense2.qw
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	"dense2.bact" [label="dense2.bact
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	dense3 [label="dense3
-
-bias: None
-in_features: 16
-out_features: 16
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-type: linear
-qb: None
-sparsity: 0.0"]
-	"dense3.qw" [label="dense3.qw
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	"dense3.bact" [label="dense3.bact
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	dense4 [label="dense4
-
-bias: None
-in_features: 16
+in_features: 48
 out_features: 10
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-w_bit: 8
-w_frac: 6
-a_bit: 8
-a_frac: 6
-type: linear
-qb: None
 sparsity: 0.0"]
-	"dense4.qw" [label="dense4.qw
+	activations [label="activations
 
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
 "]
-	"dense4.bact" [label="dense4.bact
-
-n_bits: 8
-n_frac: 6
-max: 1.984375
-min: -2.0
-"]
-	dense1 -> "dense1.qw"
-	"dense1.qw" -> "dense1.bact"
-	"dense1.bact" -> dense2
-	dense2 -> "dense2.qw"
-	"dense2.qw" -> "dense2.bact"
-	"dense2.bact" -> dense3
-	dense3 -> "dense3.qw"
-	"dense3.qw" -> "dense3.bact"
-	"dense3.bact" -> dense4
-	dense4 -> "dense4.qw"
-	"dense4.qw" -> "dense4.bact"
+	conv1 -> pool
+	pool -> fc1
+	fc1 -> activations
 }
