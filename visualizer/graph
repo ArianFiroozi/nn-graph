@@ -6,19 +6,51 @@ digraph {
 	conv1 [label="conv1
 
 bias: None
-in_channels: 14
-out_channels: 8
-kernel_size: (3,)
-stride: (1,)
-padding: (0,)
-dilation: (1,)
+in_channels: 1
+out_channels: 32
+kernel_size: (3, 3)
+stride: (1, 1)
+padding: (1, 1)
+dilation: (1, 1)
 transposed: False
-output_padding: (0,)
+output_padding: (0, 0)
 groups: 1
 padding_mode: zeros
-_reversed_padding_repeated_twice: (0, 0)
+_reversed_padding_repeated_twice: (1, 1, 1, 1)
 sparsity: 0.0"]
-	pool [label="pool
+	pool1 [label="pool1
+
+kernel_size: 2
+stride: 2
+padding: 0
+dilation: 1
+return_indices: False
+ceil_mode: False
+"]
+	relu1 [label="relu1
+
+inplace: False
+"]
+	conv2 [label="conv2
+
+bias: None
+in_channels: 32
+out_channels: 16
+kernel_size: (3, 3)
+stride: (1, 1)
+padding: (1, 1)
+dilation: (1, 1)
+transposed: False
+output_padding: (0, 0)
+groups: 1
+padding_mode: zeros
+_reversed_padding_repeated_twice: (1, 1, 1, 1)
+sparsity: 0.0"]
+	relu2 [label="relu2
+
+inplace: False
+"]
+	pool2 [label="pool2
 
 kernel_size: 2
 stride: 2
@@ -30,13 +62,19 @@ ceil_mode: False
 	fc1 [label="fc1
 
 bias: None
-in_features: 48
+in_features: 144
 out_features: 10
 sparsity: 0.0"]
 	activations [label="activations
 
+pool1: ('relu1', ReLU())
+conv2: ('relu2', ReLU())
 "]
-	conv1 -> pool
-	pool -> fc1
+	conv1 -> pool1
+	pool1 -> relu1
+	relu1 -> conv2
+	conv2 -> relu2
+	relu2 -> pool2
+	pool2 -> fc1
 	fc1 -> activations
 }

@@ -41,7 +41,7 @@ class Operation: # node
         return self.name
 
 class PaddOP(Operation):
-    def __init__(self, name:str, padding:int, label:str="Padding"):
+    def __init__(self, name:str, padding:list, label:str="Padding"):
         super().__init__(name, OperationType.PADD, label)
         self.padding = padding
 
@@ -49,7 +49,7 @@ class PaddOP(Operation):
         return self.label + ": " + str(self.padding)
 
 class DilationOP(Operation):
-    def __init__(self, name:str, dilation:int, label:str="Dilation"):
+    def __init__(self, name:str, dilation:list, label:str="Dilation"):
         super().__init__(name, OperationType.DILATION, label)
         self.dilation = dilation
 
@@ -170,18 +170,18 @@ class Layer: # node
 
 class Conv1dLayer(Layer):
     def __init__(self, name:str, in_channels, out_channels, kernel_size, input_length,
-                stride=1, padding=1, dilation=1, bias=None, sparsity=0.0, label="Conv1d"):
-        super().__init__(name, LayerType.LINEAR, label, False)
+                stride=[1], padding=[1], dilation=[1], bias=None, sparsity=0.0, label="Conv1d"):
+        super().__init__(name, LayerType.CONV1D, label+": "+name, False)
         self.in_channels=in_channels
         self.out_channels=out_channels
-        self.kernel_size = kernel_size
+        self.kernel_size = kernel_size[0]
         self.input_length = input_length
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
+        self.stride = stride[0]
+        self.padding = padding[0]
+        self.dilation = dilation[0]
         self.sparsity = sparsity
-        self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size))
-        self.bias = nn.Parameter(torch.zeros(out_channels)) if bias is None else bias
+        # self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size))
+        # self.bias = nn.Parameter(torch.zeros(out_channels)) if bias is None else bias
         
         self._build_operations()
 
@@ -214,7 +214,7 @@ class Conv1dLayer(Layer):
 
         #macs
         for i in range(self.out_channels):
-            self.add_node(OutputOP('Output_c' + str(i) + self.name, [self._calc_out_size()], "Output Channel"))
+            self.add_node(OutputOP('Output_c' + str(i) + self.name, [self._calc_out_size()], "Output Channel" + str(i)))
             for j in range(self._calc_out_size()):
                 mac_node_name = f'Mac{self.name}_{i}_{j}'
                 input_start = j * self.stride - self.padding
@@ -233,16 +233,90 @@ class Conv1dLayer(Layer):
     def _calc_out_size(self):
         return (self.input_length + 2 * self.padding - self.dilation * (self.kernel_size - 1) - 1) // self.stride + 1
 
+class Conv2dLayer(Layer):
+    def __init__(self, name: str, in_channels, out_channels, kernel_size, input_height, input_width,
+                 stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, sparsity=0.0, label="Conv2d"):
+        super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
+        self.in_channels = in_channels
+        self.out_channels = 1 # out_channels
+        self.kernel_size = kernel_size 
+        self.input_height = input_height
+        self.input_width = input_width
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.sparsity = sparsity
+        
+        self._build_operations()
+
+    def get_torch(self):
+        return nn.Conv2d(
+            in_channels=self.in_channels,
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            padding=self.padding
+        )
+
+    def _build_operations(self):
+        # blue
+        self.add_node(ConstOP("Weight" + self.name, [self.out_channels, self.in_channels] + list(self.kernel_size), "Weight"))
+        self.add_node(ConstOP("Kernel" + self.name, list(self.kernel_size), "Kernel"))
+        self.add_edge(self.nodes[0].get_name(), self.nodes[1].get_name())
+        self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_height, self.input_width]))
+        self.add_input_name(self.nodes[-1].get_name())
+
+        # grey
+        self.add_node(PaddOP("Padding" + self.name, self.padding))
+        self.add_node(DilationOP("Dilation" + self.name, self.dilation))
+        self.add_edge("Kernel" + self.name, "Dilation" + self.name)
+        self.add_edge("Input" + self.name, "Padding" + self.name)
+
+        # green
+        self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_height(), self._calc_out_width()]))
+        self.add_output_name(self.nodes[-1].get_name())
+
+        # macs
+        for i in range(self.out_channels):
+            self.add_node(OutputOP('Output_c' + str(i) + self.name, [self._calc_out_height(), self._calc_out_width()], "Output Channel" + str(i)))
+            for j in range(self._calc_out_height()):
+                for k in range(self._calc_out_width()):
+                    mac_node_name = f'Mac{self.name}_{i}_{j}_{k}'
+                    input_start_h = j * self.stride[0] - self.padding[0]
+                    input_start_w = k * self.stride[1] - self.padding[1]
+                    weight_start_h = 0
+                    weight_start_w = 0
+                    weight_end_h = self.kernel_size[0] - 1
+                    weight_end_w = self.kernel_size[1] - 1
+
+                    self.add_node(MacOP(mac_node_name, 
+                                        [[input_start_h, input_start_h + self.kernel_size[0]], 
+                                         [input_start_w, input_start_w + self.kernel_size[1]]],
+                                        [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]], 
+                                        "MAC" + str(i) + "," + str(j) + "," + str(k)))                
+                    self.add_edge('Padding' + self.name, mac_node_name)
+                    self.add_edge('Dilation' + self.name, mac_node_name)
+                    self.add_edge(mac_node_name, 'Output_c' + str(i) + self.name)
+        
+        for i in range(self.out_channels):
+            self.add_edge('Output_c' + str(i) + self.name, 'Output' + self.name)
+
+    def _calc_out_height(self):
+        return (self.input_height + 2 * self.padding[0] - self.dilation[0] * (self.kernel_size[0] - 1) - 1) // self.stride[0] + 1
+
+    def _calc_out_width(self):
+        return (self.input_width + 2 * self.padding[1] - self.dilation[1] * (self.kernel_size[1] - 1) - 1) // self.stride[1] + 1
+
 class LinearLayer(Layer):
-    def __init__(self, name, in_features, out_features):
-        super().__init__(name, LayerType.LINEAR, "Linear", False)
+    def __init__(self, name, in_features, out_features, label="Linear"):
+        super().__init__(name, LayerType.LINEAR,  label+": "+name, False)
         self.in_features=in_features
         self.out_features=out_features
 
         self._build_operations()
 
     def get_torch(self):
-        return nn.Linear(
+        return nn.Linear(   
                 in_features=int(self.in_features),
                 out_features=int(self.out_features)
             )
@@ -271,7 +345,7 @@ class LinearLayer(Layer):
             self.add_edge(mac_node_name, 'Output' + self.name)
 
 class Graph():
-    def __init__(self, file_path='./model2.pkl', output_path='./visualizer', excluded_params = ["weight"]):
+    def __init__(self, file_path='./model3.pkl', output_path='./visualizer', excluded_params = ["weight"]):
 
         self.types = ['conv1d', 'conv2d', 'linear']
 
@@ -371,18 +445,29 @@ class Graph():
 
         return y
 
-    def _build_layer(self, name, input_len=4):
+    def _build_layer(self, name, input_len=3):
         layer = None
         if self._get_layer_type(name) == 'conv1d':
             in_channels=int(self.pkl_dump[name]['in_channels'])
             out_channels=int(self.pkl_dump[name]['out_channels'])
-            kernel_size=int(self.pkl_dump[name]['kernel_size'][0])
-            stride=int(self.pkl_dump[name]['stride'][0])
-            padding=int(self.pkl_dump[name]['padding'][0])
-            dilation = 1 # change if added
+            kernel_size=list(self.pkl_dump[name]['kernel_size'])
+            stride=list(self.pkl_dump[name]['stride'])
+            padding=list(self.pkl_dump[name]['padding'])
+            dilation = [1] # change if added
 
             layer = Conv1dLayer(name, in_channels, out_channels, kernel_size,
                                 input_len, stride, padding, dilation) # may add sparsity
+
+        elif self._get_layer_type(name) == 'conv2d':
+            in_channels=int(self.pkl_dump[name]['in_channels'])
+            out_channels=int(self.pkl_dump[name]['out_channels'])
+            kernel_size=list(self.pkl_dump[name]['kernel_size'])
+            stride=list(self.pkl_dump[name]['stride'])
+            padding=list(self.pkl_dump[name]['padding'])
+            dilation = [1, 1] # change if added
+
+            layer = Conv2dLayer(name, in_channels, out_channels, kernel_size,
+                                input_len, input_len, stride, padding, dilation) # may add sparsity
 
         elif self._get_layer_type(name) == 'linear':
             in_features = int(self.pkl_dump[name]['in_features'])
