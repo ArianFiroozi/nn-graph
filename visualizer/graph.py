@@ -30,17 +30,16 @@ class Operation: # node
         self.name=name # unique
         self.label=label
         self.type=type
-        self.inputs=[]
         self.outputs=[]
     
     def get_label(self):
         return self.label
 
-    def add_input_name(self, name:str):
-        self.inputs.append(name)
-
     def add_output_name(self, name:str):
         self.outputs.append(name)
+    
+    def get_name(self)->str:
+        return self.name
 
 class PaddOP(Operation):
     def __init__(self, name:str, padding:int, label:str="Padding"):
@@ -107,17 +106,36 @@ class Layer: # node
         self.type=type
         self.inputs=[]
         self.outputs=[]
+        self.nodes=[]
     
     def add_input_name(self, name:str):
         self.inputs.append(name)
 
     def add_output_name(self, name:str):
         self.outputs.append(name)
+    
+    def add_node(self, node:Operation):
+        self.nodes.append(node)
+
+    def get_node(self, name:str)->Operation:
+        for node in self.nodes:
+            if node.name == name:
+                return node
+        return None
+    
+    def get_name(self)->str:
+        return self.name
+
+    def add_edge(self, begin, end):
+        for i in range(len(self.nodes)):
+            if self.nodes[i].get_name() == begin:
+                self.nodes[i].add_output_name(end)
+                return
 
 class Conv1dLayer(Layer):
-    def __init__(self, in_channels, out_channels, kernel_size, input_length,
-                stride=1, padding=1, dilation=1, bias=None, sparsity=0.0):
-        super().__init__(LayerType.LINEAR)
+    def __init__(self, name:str, in_channels, out_channels, kernel_size, input_length,
+                stride=1, padding=1, dilation=1, bias=None, sparsity=0.0, label="Conv1d"):
+        super().__init__(name, LayerType.LINEAR, label)
         self.in_channels=in_channels
         self.out_channels=out_channels
         self.kernel_size = kernel_size
@@ -139,7 +157,44 @@ class Conv1dLayer(Layer):
             )
 
     def _build_operations():
-        pass
+        # blue
+        self.add_node(ConstOP("Weight" + self.name, [self.out_channels, self.kernel_size], "Weight"))
+        self.add_node(ConstOP("Kernel" + self.name, [self.kernel_size], "Kernel"))
+        self.add_edge(self.nodes[0].get_name(), self.nodes[1].get_name())
+        self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_length]))
+        self.add_input_name(self.nodes[-1].get_name())
+
+        #grey
+        self.add_node(PaddOP("Padding" + name, self.padding))
+        self.add_node(DilationOP("Dilation" + name, self.dilation))
+        self.add_edge("Kernel" + name, "Dilation" + name)
+        self.add_edge("Input" + name, "Padding" + name)
+
+        #green
+        self.add_node(OutputOP("Output" + name, [self.out_channels, self._calc_out_size()]))
+        self.add_output_name(self.nodes[-1].get_name())
+
+        #macs
+        for i in range(self.out_channels):
+            self.add_node(OutputOP('Output_c' + str(i) + name, [self._calc_out_size()], "Output Channel"))
+            for j in range(self._calc_out_size()):
+                mac_node_name = f'Mac{name}_{i}_{j}'
+                input_start = j * stride - padding
+                weight_start = 0 
+                weight_end = kernel_size - 1
+
+                self.add_node(MacOP(mac_node_name, [input_start, input_start+self.kernel_size],
+                                weight_start, weight_end, "MAC" + str(i) + "-" + str(j)))                
+                self.add_edge('Padding' + name, mac_node_name)
+                self.add_edge('Dilation' + name, mac_node_name)
+                self.add_edge(mac_node_name, 'Output_c' + str(i) + name)
+        
+        for i in range(self.out_channels):
+            self.add_edge('Output_c' + str(i) + name, 'Output' + name)
+
+    def _calc_out_size(self):
+        return (self.input_length + 2 * self.padding - self.dilation * (self.kernel_size - 1) - 1) // self.stride + 1
+
 
 class LinearLayer(Layer):
     def __init__(self, in_features, out_features, input_length):
