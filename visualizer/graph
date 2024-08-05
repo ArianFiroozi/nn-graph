@@ -5,6 +5,7 @@ digraph {
 	dpi=300
 	conv1 [label="conv1
 
+weight: torch.Size([32, 1, 3, 3])
 bias: None
 in_channels: 1
 out_channels: 32
@@ -33,6 +34,7 @@ inplace: False
 "]
 	conv2 [label="conv2
 
+weight: torch.Size([16, 32, 3, 3])
 bias: None
 in_channels: 32
 out_channels: 16
@@ -61,6 +63,7 @@ ceil_mode: False
 "]
 	fc1 [label="fc1
 
+weight: torch.Size([10, 144])
 bias: None
 in_features: 144
 out_features: 10

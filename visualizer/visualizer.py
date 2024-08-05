@@ -71,6 +71,9 @@ class Visualizer():
                     for key2 in self.pkl_dump[name][key]:
                         if key2 not in self.excluded:
                             self.graph_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2]) + "\n"
+                        else:
+                            self.graph_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2].shape) + "\n"
+
                 else:
                     if key not in self.excluded:
                         self.graph_dict[name] += str(key) + ": " + str(self.pkl_dump[name][key]) + "\n"

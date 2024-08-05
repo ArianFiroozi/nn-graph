@@ -10,6 +10,7 @@ class LayerType(Enum):
     CONV1D=1
     CONV2D=2
     LINEAR=3
+    
     UNKNOWN=0
 
 class OperationType(Enum):
@@ -238,7 +239,7 @@ class Conv2dLayer(Layer):
                  stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, sparsity=0.0, label="Conv2d"):
         super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
         self.in_channels = in_channels
-        self.out_channels = 1 # out_channels
+        self.out_channels = out_channels
         self.kernel_size = kernel_size 
         self.input_height = input_height
         self.input_width = input_width
@@ -306,6 +307,43 @@ class Conv2dLayer(Layer):
 
     def _calc_out_width(self):
         return (self.input_width + 2 * self.padding[1] - self.dilation[1] * (self.kernel_size[1] - 1) - 1) // self.stride[1] + 1
+
+    class LinearLayer(Layer):
+        def __init__(self, name, in_features, out_features, label="Linear"):
+            super().__init__(name, LayerType.LINEAR,  label+": "+name, False)
+            self.in_features=in_features
+            self.out_features=out_features
+
+            self._build_operations()
+
+        def get_torch(self):
+            return nn.Linear(   
+                    in_features=int(self.in_features),
+                    out_features=int(self.out_features)
+                )
+
+        def _build_operations(self):
+            # blue
+            self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
+            self.add_node(InputOP("Input" + self.name, [self.in_features]))
+            self.add_input_name(self.nodes[-1].get_name())
+
+            #green
+            self.add_node(OutputOP("Output" + self.name, [self.out_features]))
+            self.add_output_name(self.nodes[-1].get_name())
+
+            #macs
+            for i in range(self.out_features):
+                
+                mac_node_name = f'Mac{self.name}_{i}'
+                input_start = 0
+                weight_start = 0 
+
+                self.add_node(MacOP(mac_node_name, [input_start, input_start+self.in_features],
+                                [i], "MAC" + str(i)))
+                self.add_edge('Input' + self.name, mac_node_name)
+                self.add_edge('Weight' + self.name, mac_node_name)
+                self.add_edge(mac_node_name, 'Output' + self.name)
 
 class LinearLayer(Layer):
     def __init__(self, name, in_features, out_features, label="Linear"):
@@ -453,7 +491,7 @@ class Graph():
             kernel_size=list(self.pkl_dump[name]['kernel_size'])
             stride=list(self.pkl_dump[name]['stride'])
             padding=list(self.pkl_dump[name]['padding'])
-            dilation = [1] # change if added
+            dilation=[1] # change if added
 
             layer = Conv1dLayer(name, in_channels, out_channels, kernel_size,
                                 input_len, stride, padding, dilation) # may add sparsity
@@ -464,7 +502,7 @@ class Graph():
             kernel_size=list(self.pkl_dump[name]['kernel_size'])
             stride=list(self.pkl_dump[name]['stride'])
             padding=list(self.pkl_dump[name]['padding'])
-            dilation = [1, 1] # change if added
+            dilation=[1, 1] # change if added
 
             layer = Conv2dLayer(name, in_channels, out_channels, kernel_size,
                                 input_len, input_len, stride, padding, dilation) # may add sparsity
@@ -476,7 +514,11 @@ class Graph():
             layer = LinearLayer(name, in_features, out_features)
             
         else:
-            layer = Layer(name, LayerType.UNKNOWN, name)
+            label = name + '\n'
+            for k in self.pkl_dump[name].keys():
+                if not k.startswith('_'):
+                    label += str(k) + ": " + str(self.pkl_dump[name][k]) + "\n"
+            layer = Layer(name, LayerType.UNKNOWN, label)
 
         return layer
 
