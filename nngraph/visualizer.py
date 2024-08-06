@@ -8,8 +8,8 @@ from torchviz import make_dot
 import torch.nn as nn
 
 class Visualizer():
-    def __init__(self, file_path='./model3.pkl', output_graph_path="./visualizer/outputs", 
-                output_operational_graph_path='./visualizer/outputs', output_func_graph_path='./visualizer/outputs', excluded_params = ["weight"], threshold=100):
+    def __init__(self, file_path='./model3.pkl', output_graph_path="./nngraph/outputs", 
+                output_func_graph_path='./nngraph/outputs', excluded_params = ["weight"], threshold=100):
         torch.set_printoptions(threshold=threshold)
         node_attr = dict(style='filled',
                             shape='box',
@@ -32,7 +32,6 @@ class Visualizer():
         self.nn_graph.attr(dpi='300')
         self.output_graph_path=output_graph_path
         self.output_func_graph_path=output_func_graph_path
-        self.output_operational_graph_path=output_operational_graph_path
     
     def visualize(self, functions_graph=True, show_sublayers=True, show_func_attrs=False, display_after=False):
         self._read_pkl()
@@ -41,8 +40,6 @@ class Visualizer():
 
         if functions_graph:
             self._build_functions_graph(show_sublayers, show_func_attrs)
-
-        self._build_operational_graph()
 
         if display_after:
             self.dispay_img()
@@ -179,131 +176,6 @@ class Visualizer():
                 names.append("\t"+str(name))
         
         dot.render(self.output_func_graph_path + '/functions_graph', format='png', cleanup=True) 
-
-    def _build_operational_layer(self, name, input_size=4):
-        dot = graphviz.Digraph('cluster_' + name)
-
-        if self._get_layer_type(name) == 'conv1d':
-            conv_layer = nn.Conv1d(
-                in_channels=int(self.pkl_dump[name]['in_channels']),
-                out_channels=int(self.pkl_dump[name]['out_channels']),
-                kernel_size=int(self.pkl_dump[name]['kernel_size'][0]),
-                stride=int(self.pkl_dump[name]['stride'][0]),
-                padding=int(self.pkl_dump[name]['padding'][0])
-            )
-            x = self.pkl_dump[name]["_parameters"]["weight"].shape
-
-            kernel_size = conv_layer.kernel_size[0]
-            padding = conv_layer.padding[0]
-            stride = conv_layer.stride[0]
-            dilation = conv_layer.dilation[0]
-            num_input_channels = conv_layer.in_channels
-            num_output_channels = conv_layer.out_channels
-
-            output_size = (input_size + 2 * padding - dilation * (kernel_size - 1) - 1) // stride + 1
-            num_macs = output_size * kernel_size * num_input_channels * num_output_channels
-
-            dot.node('Input' + str(name), f'Input: x{str([num_input_channels, input_size])}', shape='box', style='filled', color='lightblue')
-            dot.node('Weight' + str(name), 'Weight' + str([num_output_channels, kernel_size]), shape='box', style='filled', color='lightblue')
-            dot.node('Kernel' + str(name), f'Kernel: w[{kernel_size}]', shape='box', style='filled', color='lightblue')
-            dot.node('Padding' + str(name), 'Padding: ' + str(padding), shape='ellipse', style='filled', color='lightgrey')
-            dot.node('Dilation' + str(name), 'Dilation: ' + str(dilation), shape='ellipse', style='filled', color='lightgrey')
-            dot.node('Output' + str(name), f'Output: y{[num_output_channels, output_size]}', shape='box', style='filled', color='lightgreen')
-            dot.edge('Input' + str(name), 'Padding' + str(name))
-            dot.edge('Weight' + str(name), 'Kernel' + str(name))
-            dot.edge('Kernel' + str(name), 'Dilation' + str(name))
-
-            for i in range(num_output_channels):
-                dot.node('Output_c' + str(i) + str(name), 'Output Channel ' + str(i) + ': y' + str([output_size]), shape='box', style='filled', color='lightgreen')
-                for j in range(output_size):
-                    mac_node_name = f'Mac{name}_{i}_{j}'
-                    input_start = j * stride - padding
-                    weight_start = 0 
-                    weight_end = kernel_size - 1
-
-                    dot.node(mac_node_name, f'MAC {i},{j}' + f'\nusing: x[{input_start}:{input_start + kernel_size}], w[{i}][{weight_start}:{weight_end}]'
-                                , shape='box', style='filled', color='lightgrey')
-                    
-                    dot.edge('Padding' + str(name), mac_node_name)
-                    dot.edge('Dilation' + str(name), mac_node_name)
-                    dot.edge(mac_node_name, 'Output_c' + str(i) + str(name))
-            
-            for i in range(num_output_channels):
-                dot.edge('Output_c' + str(i) + str(name), 'Output' + str(name))
-
-        elif self._get_layer_type(name) == 'linear':
-            linear_layer = nn.Linear(
-                in_features=int(self.pkl_dump[name]['in_features']),
-                out_features=int(self.pkl_dump[name]['out_features'])
-            )
-            x = self.pkl_dump[name]["_parameters"]["weight"].shape
-
-            num_input_features = linear_layer.in_features
-            num_output_features = linear_layer.out_features
-
-            output_size = num_output_features
-
-            dot.node('Input' + str(name), f'Input: x{str([num_input_features])}', shape='box', style='filled', color='lightblue')
-            dot.node('Weight' + str(name), 'Weight: w' + str([num_output_features, num_input_features]), shape='box', style='filled', color='lightblue')
-            dot.node('Output' + str(name), f'Output: y{[num_output_features]}', shape='box', style='filled', color='lightgreen')
-
-            for i in range(num_output_features):
-                # dot.node('Output_f' + str(i) + str(name), 'Output Feature ' + str(i) + ': y' , shape='box', style='filled', color='lightgreen')
-                
-                mac_node_name = f'MAC{name}_{i}'
-                
-                dot.node(mac_node_name, f'MAC {i}' + f'\nusing: x, w[{i}]', shape='box', style='filled', color='lightgrey')
-                dot.edge('Weight' + str(name), mac_node_name)
-                
-                dot.edge('Input' + str(name), mac_node_name)
-                dot.edge(mac_node_name, 'Output' + str(name))
-                
-            # for i in range(num_output_features):
-            #     dot.edge('Output_f' + str(i) + str(name), 'Output' + str(name))
-
-        return dot
-
-    def _build_operational_graph(self, show_sublayers=True):
-        dot = graphviz.Digraph()
-        names = []
-
-        for name in self.layer_names:
-            if not show_sublayers and name.count("."):
-                continue
-                
-            layer_torch = self._get_torch_layer(name)
-            if layer_torch is not None:
-                layer_dot = self._build_operational_layer(name)
-                if layer_dot is None:
-                    continue
-
-                layer_dot.attr(name='cluster_'+str(name),
-                            label=str(name),
-                            style='dashed',
-                            color='black', 
-                            penwidth='2')
-                dot.subgraph(layer_dot)
-
-                if len(names):
-                    dot.edge('Output' + names[-1], 'Input'+str(name))
-
-                names.append(str(name))
-            else:
-                with dot.subgraph(name='cluster_'+name) as sub:
-                    sub.attr(style='dashed', color='black', penwidth='2')
-                    sub.node(name, shape='box', style='filled', color='lightgrey')
-                    sub.node('Input' + name, label='Input',  shape='box', style='filled', color='lightblue')
-                    sub.node('Output' + name, label='Output', shape='box', style='filled', color='lightgreen')
-                    sub.edge('Input' + name, name)
-                    sub.edge(name, 'Output' + name)
-                    sub.attr(label='unknown op')
-
-                if len(names):
-                    dot.edge('Output' + names[-1], 'Input'+str(name))
-
-                names.append(str(name))
-
-        dot.render(self.output_operational_graph_path + '/operational_graph', format='png', cleanup=True) 
 
     def _build_graph(self, show_sublayers=True):
         for key in self.graph_dict.keys():

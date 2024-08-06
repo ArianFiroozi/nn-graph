@@ -6,11 +6,10 @@ import pickle
 import torch.nn as nn
 from enum import Enum
 import networkx as nx
-from layer import *
-from operation import *
+from nngraph.layer import *
 
 class Graph(nx.DiGraph):
-    def __init__(self, file_path='./model4.pkl', output_path='./visualizer/outputs', excluded_params = ["weight"]):
+    def __init__(self, file_path='./model4.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
         super().__init__()
         self.types = ['conv1d', 'conv2d', 'linear']
 
@@ -20,7 +19,6 @@ class Graph(nx.DiGraph):
         self.layer_names=[]
         self.excluded=excluded_params
         self.output_path=output_path
-        # self.layers=[] #ordered
 
         self._read_pkl()
         self._read_layers()
@@ -40,7 +38,7 @@ class Graph(nx.DiGraph):
 
     def _calc_sparsity(self, weights):
         total_elements = weights.numel()
-        non_zero_elements = (abs(weights) != 0).sum().item() # fix
+        non_zero_elements = (abs(weights) != 0).sum().item()
         sparsity = 1 - (non_zero_elements / total_elements)
         return sparsity
 
@@ -105,7 +103,7 @@ class Graph(nx.DiGraph):
             y = conv_layer(x)
 
         else:
-            print("visualizer: unknown layer type->"+name)
+            print("nngraph: unknown layer type->"+name)
             return None
 
         return y
@@ -175,14 +173,7 @@ class Graph(nx.DiGraph):
                     dot.edge(output, input)
             prev_layer=layer
 
-        dot.render(self.output_path + '/new_operational_graph', format='png', cleanup=True) 
+        dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 
 
     def __len__(self):
         return len(self.nodes)
-
-g = Graph()
-g.visualize()
-pos = nx.spring_layout(g)
-nx.draw(g, pos, with_labels=True, node_size=2000, node_color='lightblue', font_size=5)
-plt.savefig(g.output_path+'/graph_test.png')
-nx.drawing.layout
