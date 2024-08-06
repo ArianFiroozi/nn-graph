@@ -16,7 +16,7 @@ class OperationType(Enum):
     CONST=9
     UNKNOWN=0
 
-class Operation: # node
+class Operation:
     def __init__(self, name:str, type:OperationType=0, label:str="OP"):
         self.name=name # unique
         self.label=label

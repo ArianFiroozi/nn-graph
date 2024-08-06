@@ -8,7 +8,7 @@ from torchviz import make_dot
 import torch.nn as nn
 
 class Visualizer():
-    def __init__(self, file_path='./model3.pkl', output_graph_path="./nngraph/outputs", 
+    def __init__(self, file_path='./models/model3.pkl', output_graph_path="./nngraph/outputs", 
                 output_func_graph_path='./nngraph/outputs', excluded_params = ["weight"], threshold=100):
         torch.set_printoptions(threshold=threshold)
         node_attr = dict(style='filled',
@@ -200,6 +200,3 @@ class Visualizer():
         plt.imshow(img)
         plt.axis('off')
         plt.show()
-
-viz = Visualizer()      
-viz.visualize()

@@ -9,53 +9,34 @@ import networkx as nx
 from nngraph.layer import *
 
 class Graph(nx.DiGraph):
-    def __init__(self, file_path='./model4.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
+    def __init__(self, input_pkl_path='./models/model_big.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
         super().__init__()
         self.types = ['conv1d', 'conv2d', 'linear']
 
-        self.graph_dict={}
-        self.file_path=file_path
+        self.input_pkl_path=input_pkl_path
         self.pkl_dump={}
         self.layer_names=[]
         self.excluded=excluded_params
         self.output_path=output_path
 
         self._read_pkl()
-        self._read_layers()
         self._build_graph()
     
     def visualize(self):
         self._render_operational()
 
     def _read_pkl(self):
-        with open(self.file_path, 'rb') as file:
+        with open(self.input_pkl_path, 'rb') as file:
             self.pkl_dump:dict = pickle.load(file)
         
         assert "modules" in self.pkl_dump.keys()
         self.layer_names = self.pkl_dump["modules"]
-        for name in self.layer_names:
-            self.graph_dict[name] = ""
 
     def _calc_sparsity(self, weights):
         total_elements = weights.numel()
         non_zero_elements = (abs(weights) != 0).sum().item()
         sparsity = 1 - (non_zero_elements / total_elements)
         return sparsity
-
-    def _read_layers(self):
-        for name in self.layer_names:
-            self.graph_dict[name] += str(name) + "\n\n"
-            for key in self.pkl_dump[name].keys():
-                if isinstance(self.pkl_dump[name][key], dict):
-                    for key2 in self.pkl_dump[name][key]:
-                        if key2 not in self.excluded:
-                            self.graph_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2]) + "\n"
-                else:
-                    if key not in self.excluded:
-                        self.graph_dict[name] += str(key) + ": " + str(self.pkl_dump[name][key]) + "\n"
-            
-            if "_parameters" in self.pkl_dump[name] and "weight" in self.pkl_dump[name]["_parameters"]:
-                self.graph_dict[name] += "sparsity: " + str(self._calc_sparsity(self.pkl_dump[name]["_parameters"]["weight"]))
 
     def _get_layer_type(self, name):
         type = None
@@ -170,7 +151,7 @@ class Graph(nx.DiGraph):
 
             for output in prev_layer.outputs: # fix for multiple outputs
                 for input in layer.inputs:
-                    dot.edge(output, input)
+                    dot.edge(output.get_name(), input.get_name())
             prev_layer=layer
 
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 

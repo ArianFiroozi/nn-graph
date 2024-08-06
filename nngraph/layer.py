@@ -10,10 +10,9 @@ class LayerType(Enum):
     CONV1D=1
     CONV2D=2
     LINEAR=3
-    
     UNKNOWN=0
 
-class Layer(nx.DiGraph): # node
+class Layer(nx.DiGraph):
     def __init__(self, name:str, type:LayerType, label:str="OP", build_dummy_op=True):
         super().__init__()
         self.name=name # unique
@@ -33,11 +32,11 @@ class Layer(nx.DiGraph): # node
     def __repr__(self):
         return f"Layer(name={self.name},\n type={self.type})"
 
-    def add_input_name(self, name:str):
-        self.inputs.append(name)
+    def add_input(self, node):
+        self.inputs.append(node)
 
-    def add_output_name(self, name:str):
-        self.outputs.append(name)
+    def add_output(self, node):
+        self.outputs.append(node)
 
     def get_node(self, name:str)->Operation:
         for node in self.nodes():
@@ -50,10 +49,10 @@ class Layer(nx.DiGraph): # node
 
     def _build_operations(self):
         self.add_node(InputOP('Input'+self.name,[None]))
-        self.add_input_name(self.get_node('Input'+self.name).get_name())
+        self.add_input(self.get_node('Input'+self.name))
         self.add_node(Operation('OP'+self.name, label=self.name))
         self.add_node(OutputOP('Output'+self.name,[None]))
-        self.add_output_name(self.get_node('Output'+self.name).get_name())
+        self.add_output(self.get_node('Output'+self.name))
 
         self.add_edge(self.get_node('Input'+self.name), self.get_node('OP'+self.name))
         self.add_edge(self.get_node('OP'+self.name), self.get_node('Output'+self.name))
@@ -119,7 +118,7 @@ class Conv1dLayer(Layer):
         self.add_node(ConstOP("Kernel" + self.name, [self.kernel_size], "Kernel"))
         self.add_edge(self.get_node('Weight' + self.name), self.get_node('Kernel' + self.name))
         self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_length]))
-        self.add_input_name(self.get_node('Input'+self.name).get_name())
+        self.add_input(self.get_node('Input'+self.name))
 
         #grey
         self.add_node(PaddOP("Padding" + self.name, self.padding))
@@ -129,7 +128,7 @@ class Conv1dLayer(Layer):
 
         #green
         self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_size()]))
-        self.add_output_name(self.get_node('Output' + self.name).get_name())
+        self.add_output(self.get_node('Output' + self.name))
 
         #macs
         for i in range(self.out_channels):
@@ -157,7 +156,7 @@ class Conv2dLayer(Layer):
                  stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, sparsity=0.0, label="Conv2d"):
         super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
         self.in_channels = in_channels
-        self.out_channels = 1 # out_channels
+        self.out_channels = out_channels
         self.kernel_size = kernel_size 
         self.input_height = input_height
         self.input_width = input_width
@@ -184,7 +183,7 @@ class Conv2dLayer(Layer):
         self.add_edge(self.get_node("Weight" + self.name), self.get_node("Kernel" + self.name))
 
         self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_height, self.input_width]))
-        self.add_input_name(self.get_node("Input" + self.name).get_name())
+        self.add_input(self.get_node("Input" + self.name))
 
         # grey
         self.add_node(PaddOP("Padding" + self.name, self.padding))
@@ -194,7 +193,7 @@ class Conv2dLayer(Layer):
 
         # green
         self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_height(), self._calc_out_width()]))
-        self.add_output_name(self.get_node("Output" + self.name).get_name())
+        self.add_output(self.get_node("Output" + self.name))
 
         # macs
         for i in range(self.out_channels):
@@ -246,11 +245,11 @@ class Conv2dLayer(Layer):
             # blue
             self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
             self.add_node(InputOP("Input" + self.name, [self.in_features]))
-            self.add_input_name(self.get_node('Input' + self.name).get_name())
+            self.add_input(self.get_node('Input' + self.name))
 
             #green
             self.add_node(OutputOP("Output" + self.name, [self.out_features]))
-            self.add_output_name(self.get_node('Output' + self.name).get_name())
+            self.add_output(self.get_node('Output' + self.name))
 
             #macs
             for i in range(self.out_features):
@@ -283,11 +282,11 @@ class LinearLayer(Layer):
         # blue
         self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
         self.add_node(InputOP("Input" + self.name, [self.in_features]))
-        self.add_input_name(self.get_node('Input'+self.name).get_name())
+        self.add_input(self.get_node('Input'+self.name))
 
         #green
         self.add_node(OutputOP("Output" + self.name, [self.out_features]))
-        self.add_output_name(self.get_node('Output'+self.name).get_name())
+        self.add_output(self.get_node('Output'+self.name))
 
         #macs
         for i in range(self.out_features):
