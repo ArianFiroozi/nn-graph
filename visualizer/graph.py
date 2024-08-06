@@ -5,6 +5,7 @@ import matplotlib.image as mpimg
 import pickle
 import torch.nn as nn
 from enum import Enum
+import networkx as nx
 
 class LayerType(Enum):
     CONV1D=1
@@ -32,6 +33,15 @@ class Operation: # node
         self.type=type
         self.inputs=[]
     
+    def __hash__(self):
+        return hash(self.name)
+
+    def __eq__(self, other):
+        return isinstance(other, Operation) and self.name == other.name
+
+    def __repr__(self):
+        return f"Operation(name={self.name},\n type={self.type})"
+
     def get_label(self):
         return self.label
 
@@ -99,50 +109,60 @@ class OutputOP(Operation):
         printable += "\nY" + str(self.shape)
         return printable
 
-class Layer: # node
+class Layer(nx.DiGraph): # node
     def __init__(self, name:str, type:LayerType, label:str="OP", build_dummy_op=True):
+        super().__init__()
         self.name=name # unique
         self.label=label
         self.type=type
         self.inputs=[]
         self.outputs=[]
-        self.nodes=[]
+        # self.nodes=[]
         if build_dummy_op:
             self._build_operations()
-    
+
+    def __hash__(self):
+        return hash(self.name)
+
+    def __eq__(self, other):
+        return isinstance(other, Layer) and self.name == other.name
+
+    def __repr__(self):
+        return f"Layer(name={self.name},\n type={self.type})"
+
     def add_input_name(self, name:str):
         self.inputs.append(name)
 
     def add_output_name(self, name:str):
         self.outputs.append(name)
     
-    def add_node(self, node:Operation):
-        self.nodes.append(node)
+    # def add_node(self, node:Operation):
+    #     self.nodes.append(node)
 
     def get_node(self, name:str)->Operation:
-        for node in self.nodes:
-            if node.name == name:
+        for node in self.nodes():
+            if node.get_name() == name:
                 return node
         return None
     
     def get_name(self)->str:
         return self.name
 
-    def add_edge(self, begin, end):
-        for i in range(len(self.nodes)):
-            if self.nodes[i].get_name() == end:
-                self.nodes[i].add_input_name(begin)
-                return
+    # def add_edge(self, begin, end):
+    #     for i in range(len(self.nodes)):
+    #         if self.nodes[i].get_name() == end:
+    #             self.nodes[i].add_input_name(begin)
+    #             return
     
     def _build_operations(self):
-        self.add_node(InputOP('Input'+self.name,[-1]))
-        self.add_input_name(self.nodes[-1].get_name())
+        self.add_node(InputOP('Input'+self.name,[None]))
+        self.add_input_name(self.get_node('Input'+self.name).get_name())
         self.add_node(Operation('OP'+self.name, label=self.name))
-        self.add_node(OutputOP('Output'+self.name,[-1]))
-        self.add_output_name(self.nodes[-1].get_name())
+        self.add_node(OutputOP('Output'+self.name,[None]))
+        self.add_output_name(self.get_node('Output'+self.name).get_name())
 
-        self.add_edge(self.nodes[0].get_name(), self.nodes[1].get_name())
-        self.add_edge(self.nodes[1].get_name(), self.nodes[2].get_name())
+        self.add_edge(self.get_node('Input'+self.name), self.get_node('OP'+self.name))
+        self.add_edge(self.get_node('OP'+self.name), self.get_node('Output'+self.name))
 
     def get_visual(self):
         dot = Digraph('cluster_' + self.name)
@@ -151,7 +171,7 @@ class Layer: # node
                 color='black', 
                 penwidth='2')
 
-        for node in self.nodes:
+        for node in self.nodes():
             color = 'lightgrey'
             shape = 'box'
             style = 'filled'
@@ -167,6 +187,10 @@ class Layer: # node
 
             for input_name in node.inputs:
                 dot.edge(input_name, node.get_name())
+
+        for edge in self.edges():
+            dot.edge(edge[0].get_name(), edge[1].get_name())
+
         return dot
 
 class Conv1dLayer(Layer):
@@ -199,19 +223,19 @@ class Conv1dLayer(Layer):
         # blue
         self.add_node(ConstOP("Weight" + self.name, [self.out_channels, self.kernel_size], "Weight"))
         self.add_node(ConstOP("Kernel" + self.name, [self.kernel_size], "Kernel"))
-        self.add_edge(self.nodes[0].get_name(), self.nodes[1].get_name())
+        self.add_edge(self.get_node('Weight' + self.name), self.get_node('Kernel' + self.name))
         self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_length]))
-        self.add_input_name(self.nodes[-1].get_name())
+        self.add_input_name(self.get_node('Input'+self.name).get_name())
 
         #grey
         self.add_node(PaddOP("Padding" + self.name, self.padding))
         self.add_node(DilationOP("Dilation" + self.name, self.dilation))
-        self.add_edge("Kernel" + self.name, "Dilation" + self.name)
-        self.add_edge("Input" + self.name, "Padding" + self.name)
+        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
 
         #green
         self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_size()]))
-        self.add_output_name(self.nodes[-1].get_name())
+        self.add_output_name(self.get_node('Output' + self.name).get_name())
 
         #macs
         for i in range(self.out_channels):
@@ -224,12 +248,12 @@ class Conv1dLayer(Layer):
 
                 self.add_node(MacOP(mac_node_name, [input_start, input_start+self.kernel_size],
                                 [weight_start, weight_end], "MAC" + str(i) + "," + str(j)))                
-                self.add_edge('Padding' + self.name, mac_node_name)
-                self.add_edge('Dilation' + self.name, mac_node_name)
-                self.add_edge(mac_node_name, 'Output_c' + str(i) + self.name)
+                self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
         
         for i in range(self.out_channels):
-            self.add_edge('Output_c' + str(i) + self.name, 'Output' + self.name)
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
 
     def _calc_out_size(self):
         return (self.input_length + 2 * self.padding - self.dilation * (self.kernel_size - 1) - 1) // self.stride + 1
@@ -239,7 +263,7 @@ class Conv2dLayer(Layer):
                  stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, sparsity=0.0, label="Conv2d"):
         super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
         self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.out_channels = 1 # out_channels
         self.kernel_size = kernel_size 
         self.input_height = input_height
         self.input_width = input_width
@@ -263,19 +287,20 @@ class Conv2dLayer(Layer):
         # blue
         self.add_node(ConstOP("Weight" + self.name, [self.out_channels, self.in_channels] + list(self.kernel_size), "Weight"))
         self.add_node(ConstOP("Kernel" + self.name, list(self.kernel_size), "Kernel"))
-        self.add_edge(self.nodes[0].get_name(), self.nodes[1].get_name())
+        self.add_edge(self.get_node("Weight" + self.name), self.get_node("Kernel" + self.name))
+
         self.add_node(InputOP("Input" + self.name, [self.in_channels, self.input_height, self.input_width]))
-        self.add_input_name(self.nodes[-1].get_name())
+        self.add_input_name(self.get_node("Input" + self.name).get_name())
 
         # grey
         self.add_node(PaddOP("Padding" + self.name, self.padding))
         self.add_node(DilationOP("Dilation" + self.name, self.dilation))
-        self.add_edge("Kernel" + self.name, "Dilation" + self.name)
-        self.add_edge("Input" + self.name, "Padding" + self.name)
+        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
 
         # green
         self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_height(), self._calc_out_width()]))
-        self.add_output_name(self.nodes[-1].get_name())
+        self.add_output_name(self.get_node("Output" + self.name).get_name())
 
         # macs
         for i in range(self.out_channels):
@@ -292,15 +317,16 @@ class Conv2dLayer(Layer):
 
                     self.add_node(MacOP(mac_node_name, 
                                         [[input_start_h, input_start_h + self.kernel_size[0]], 
-                                         [input_start_w, input_start_w + self.kernel_size[1]]],
+                                        [input_start_w, input_start_w + self.kernel_size[1]]],
                                         [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]], 
                                         "MAC" + str(i) + "," + str(j) + "," + str(k)))                
-                    self.add_edge('Padding' + self.name, mac_node_name)
-                    self.add_edge('Dilation' + self.name, mac_node_name)
-                    self.add_edge(mac_node_name, 'Output_c' + str(i) + self.name)
-        
+                    self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
+                    self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
+                    self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+
         for i in range(self.out_channels):
-            self.add_edge('Output_c' + str(i) + self.name, 'Output' + self.name)
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
+
 
     def _calc_out_height(self):
         return (self.input_height + 2 * self.padding[0] - self.dilation[0] * (self.kernel_size[0] - 1) - 1) // self.stride[0] + 1
@@ -326,11 +352,11 @@ class Conv2dLayer(Layer):
             # blue
             self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
             self.add_node(InputOP("Input" + self.name, [self.in_features]))
-            self.add_input_name(self.nodes[-1].get_name())
+            self.add_input_name(self.get_node('Input' + self.name).get_name())
 
             #green
             self.add_node(OutputOP("Output" + self.name, [self.out_features]))
-            self.add_output_name(self.nodes[-1].get_name())
+            self.add_output_name(self.get_node('Output' + self.name).get_name())
 
             #macs
             for i in range(self.out_features):
@@ -341,9 +367,9 @@ class Conv2dLayer(Layer):
 
                 self.add_node(MacOP(mac_node_name, [input_start, input_start+self.in_features],
                                 [i], "MAC" + str(i)))
-                self.add_edge('Input' + self.name, mac_node_name)
-                self.add_edge('Weight' + self.name, mac_node_name)
-                self.add_edge(mac_node_name, 'Output' + self.name)
+                self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
 
 class LinearLayer(Layer):
     def __init__(self, name, in_features, out_features, label="Linear"):
@@ -363,11 +389,11 @@ class LinearLayer(Layer):
         # blue
         self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
         self.add_node(InputOP("Input" + self.name, [self.in_features]))
-        self.add_input_name(self.nodes[-1].get_name())
+        self.add_input_name(self.get_node('Input'+self.name).get_name())
 
         #green
         self.add_node(OutputOP("Output" + self.name, [self.out_features]))
-        self.add_output_name(self.nodes[-1].get_name())
+        self.add_output_name(self.get_node('Output'+self.name).get_name())
 
         #macs
         for i in range(self.out_features):
@@ -378,13 +404,13 @@ class LinearLayer(Layer):
 
             self.add_node(MacOP(mac_node_name, [input_start, input_start+self.in_features],
                             [i], "MAC" + str(i)))
-            self.add_edge('Input' + self.name, mac_node_name)
-            self.add_edge('Weight' + self.name, mac_node_name)
-            self.add_edge(mac_node_name, 'Output' + self.name)
+            self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
 
-class Graph():
-    def __init__(self, file_path='./model3.pkl', output_path='./visualizer', excluded_params = ["weight"]):
-
+class Graph(nx.DiGraph):
+    def __init__(self, file_path='./model4.pkl', output_path='./visualizer/outputs', excluded_params = ["weight"]):
+        super().__init__()
         self.types = ['conv1d', 'conv2d', 'linear']
 
         self.graph_dict={}
@@ -393,7 +419,7 @@ class Graph():
         self.layer_names=[]
         self.excluded=excluded_params
         self.output_path=output_path
-        self.layers=[] #ordered
+        # self.layers=[] #ordered
 
         self._read_pkl()
         self._read_layers()
@@ -483,8 +509,7 @@ class Graph():
 
         return y
 
-    def _build_layer(self, name, input_len=3):
-        layer = None
+    def _build_layer(self, name, input_len=3)->Layer:
         if self._get_layer_type(name) == 'conv1d':
             in_channels=int(self.pkl_dump[name]['in_channels'])
             out_channels=int(self.pkl_dump[name]['out_channels'])
@@ -493,7 +518,7 @@ class Graph():
             padding=list(self.pkl_dump[name]['padding'])
             dilation=[1] # change if added
 
-            layer = Conv1dLayer(name, in_channels, out_channels, kernel_size,
+            return Conv1dLayer(name, in_channels, out_channels, kernel_size,
                                 input_len, stride, padding, dilation) # may add sparsity
 
         elif self._get_layer_type(name) == 'conv2d':
@@ -504,39 +529,42 @@ class Graph():
             padding=list(self.pkl_dump[name]['padding'])
             dilation=[1, 1] # change if added
 
-            layer = Conv2dLayer(name, in_channels, out_channels, kernel_size,
+            return Conv2dLayer(name, in_channels, out_channels, kernel_size,
                                 input_len, input_len, stride, padding, dilation) # may add sparsity
 
         elif self._get_layer_type(name) == 'linear':
             in_features = int(self.pkl_dump[name]['in_features'])
             out_features = int(self.pkl_dump[name]['out_features'])
 
-            layer = LinearLayer(name, in_features, out_features)
+            return LinearLayer(name, in_features, out_features)
             
         else:
             label = name + '\n'
             for k in self.pkl_dump[name].keys():
                 if not k.startswith('_'):
                     label += str(k) + ": " + str(self.pkl_dump[name][k]) + "\n"
-            layer = Layer(name, LayerType.UNKNOWN, label)
-
-        return layer
+            return Layer(name, LayerType.UNKNOWN, label)
 
     def _build_graph(self, show_sublayers=True):
+        prev_layer = None
         for name in self.layer_names:
             if not show_sublayers and name.count("."):
                 continue
 
             new_layer = self._build_layer(name)
-            self.layers.append(new_layer)
+            self.add_node(new_layer)
+
+            if self.__len__()>1:
+                self.add_edge(prev_layer, new_layer)
+            prev_layer=new_layer
 
     def _render_operational(self):
         dot = Digraph()
-        for layer in self.layers:
+        for layer in self.nodes:
             dot.subgraph(layer.get_visual())
 
         prev_layer = None
-        for layer in self.layers:
+        for layer in self.nodes:
             if prev_layer==None:
                 prev_layer=layer
                 continue
@@ -548,5 +576,12 @@ class Graph():
 
         dot.render(self.output_path + '/new_operational_graph', format='png', cleanup=True) 
 
+    def __len__(self):
+        return len(self.nodes)
+
 g = Graph()
 g.visualize()
+pos = nx.spring_layout(g)
+nx.draw(g, pos, with_labels=True, node_size=2000, node_color='lightblue', font_size=5)
+plt.savefig(g.output_path+'/graph_test.png')
+nx.drawing.layout

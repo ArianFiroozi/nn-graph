@@ -8,8 +8,8 @@ from torchviz import make_dot
 import torch.nn as nn
 
 class Visualizer():
-    def __init__(self, file_path='./model3.pkl', output_graph_path="./visualizer", 
-                output_operational_graph_path='./visualizer', output_func_graph_path='./visualizer', excluded_params = ["weight"], threshold=100):
+    def __init__(self, file_path='./model3.pkl', output_graph_path="./visualizer/outputs", 
+                output_operational_graph_path='./visualizer/outputs', output_func_graph_path='./visualizer/outputs', excluded_params = ["weight"], threshold=100):
         torch.set_printoptions(threshold=threshold)
         node_attr = dict(style='filled',
                             shape='box',
