@@ -14,6 +14,8 @@ class OperationType(Enum):
     PADD=7
     DILATION=8
     CONST=9
+    PROJECT=10
+    DOT_PRODUCT=11
     UNKNOWN=0
 
 class Operation:
@@ -30,7 +32,7 @@ class Operation:
         return isinstance(other, Operation) and self.name == other.name
 
     def __repr__(self):
-        return f"Operation(name={self.name},\n type={self.type})"
+        return self.label
 
     def get_label(self):
         return self.label
@@ -97,4 +99,26 @@ class OutputOP(Operation):
     def get_label(self):
         printable = self.label + ":" 
         printable += "\nY" + str(self.shape)
+        return printable
+
+class ProjectOP(Operation):
+    def __init__(self, name:str, shape:list, label:str="Project"):
+        super().__init__(name, OperationType.PROJECT, label)
+        self.shape = shape
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\nW" + str(self.shape)
+        return printable
+
+class DotProduct(Operation):
+    def __init__(self, name:str, input1_index, input2_index, label:str="Dot Product"):
+        super().__init__(name, OperationType.DOT_PRODUCT, label)
+        self.input1_index=input1_index
+        self.input2_index=input2_index
+
+    def get_label(self):
+        printable = self.label + ":" 
+        printable += "\ninp1" + str(self.input1_index) 
+        printable += "\ninp2" + str(self.input2_index)
         return printable

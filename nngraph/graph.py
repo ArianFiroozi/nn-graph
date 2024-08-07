@@ -19,6 +19,7 @@ class Graph(nx.DiGraph):
         self.excluded=excluded_params
         self.output_path=output_path
 
+
         self._read_pkl()
         self._build_graph()
     
@@ -50,6 +51,8 @@ class Graph(nx.DiGraph):
                 type = 'conv2d'
             elif len(self.pkl_dump[name]['kernel_size']) == 1:
                 type = 'conv1d'
+        elif 'num_heads' in self.pkl_dump[name].keys():
+            type = 'attention'
 
         return type
 
@@ -83,13 +86,24 @@ class Graph(nx.DiGraph):
             x = torch.randn(self.pkl_dump[name]["_parameters"]["weight"].shape)
             y = conv_layer(x)
 
+        elif type == 'attention':
+            attention_layer = nn.MultiheadAttention(self.pkl_dump[name]['embed_dim'], 
+                                                self.pkl_dump[name]['num_heads'],
+                                                self.pkl_dump[name]['dropout'])
+
+            sequence_length = 3 
+            embed_dim = self.pkl_dump[name]['embed_dim']
+    
+            x = torch.randn(sequence_length, embed_dim)
+            y, attn_output_weights = attention_layer(x, x, x)
+
         else:
             print("nngraph: unknown layer type->"+name)
             return None
 
         return y
 
-    def _build_layer(self, name, input_len=3)->Layer:
+    def _build_layer(self, name, input_len=3)->Layer: #TODO: add output shapes for each layer
         if self._get_layer_type(name) == 'conv1d':
             in_channels=int(self.pkl_dump[name]['in_channels'])
             out_channels=int(self.pkl_dump[name]['out_channels'])
@@ -117,6 +131,12 @@ class Graph(nx.DiGraph):
             out_features = int(self.pkl_dump[name]['out_features'])
 
             return LinearLayer(name, in_features, out_features)
+
+        elif self._get_layer_type(name) == 'attention':
+            embed_dim = int(self.pkl_dump[name]['embed_dim'])
+            num_heads = int(self.pkl_dump[name]['num_heads'])
+
+            return MHAttentionLayer(name, [input_len, 8], embed_dim, num_heads) # fix if output added
             
         else:
             label = name + '\n'

@@ -8,8 +8,8 @@ from torchviz import make_dot
 import torch.nn as nn
 
 class Visualizer():
-    def __init__(self, file_path='./models/model3.pkl', output_graph_path="./nngraph/outputs", 
-                output_func_graph_path='./nngraph/outputs', excluded_params = ["weight"], threshold=100):
+    def __init__(self, file_path='./models/model_big.pkl', output_graph_path="./nngraph/outputs", 
+                output_func_graph_path='./nngraph/outputs', excluded_params = ["weight", "bias", "in_proj_weight", "in_proj_bias"], threshold=100):
         torch.set_printoptions(threshold=threshold)
         node_attr = dict(style='filled',
                             shape='box',
@@ -68,8 +68,8 @@ class Visualizer():
                     for key2 in self.pkl_dump[name][key]:
                         if key2 not in self.excluded:
                             self.graph_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2]) + "\n"
-                        else:
-                            self.graph_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2].shape) + "\n"
+                        elif isinstance(self.pkl_dump[name][key][key2], torch.Tensor):
+                            self.graph_dict[name] += str(key2) + ": " + str(list(self.pkl_dump[name][key][key2].shape)) + "\n"
 
                 else:
                     if key not in self.excluded:
@@ -90,6 +90,8 @@ class Visualizer():
                 type = 'conv2d'
             elif len(self.pkl_dump[name]['kernel_size']) == 1:
                 type = 'conv1d'
+        elif 'num_heads' in self.pkl_dump[name].keys():
+            type ='attention' 
 
         return type
 
@@ -122,6 +124,18 @@ class Visualizer():
             )
             x = torch.randn(self.pkl_dump[name]["_parameters"]["weight"].shape)
             y = conv_layer(x)
+        elif type == 'attention':
+            attention_layer = nn.MultiheadAttention(self.pkl_dump[name]['embed_dim'], 
+                                                self.pkl_dump[name]['num_heads'],
+                                                self.pkl_dump[name]['dropout'])
+
+            sequence_length = 3  # Example sequence length
+            batch_size = 1        # Example batch size
+            embed_dim = self.pkl_dump[name]['embed_dim']
+    
+            x = torch.randn(sequence_length, embed_dim)
+            y, attn_output_weights = attention_layer(x, x, x)
+            print(attn_output_weights.shape, embed_dim)    
 
         else:
             print("visualizer: unknown layer type->"+name)
@@ -163,8 +177,7 @@ class Visualizer():
                 for i in input_nodes:
                     dot.node(name, 
                             str(name) + '\n' 
-                            + 'type: ' + self._get_layer_type(name) + '\n'
-                            + str(self.pkl_dump[name]['_parameters']['weight'].shape))
+                            + 'type: ' + self._get_layer_type(name))
                     dot.edge(name, i[1:])
 
                 names.append(node_names[0])

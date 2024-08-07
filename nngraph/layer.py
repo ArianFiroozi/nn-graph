@@ -10,6 +10,7 @@ class LayerType(Enum):
     CONV1D=1
     CONV2D=2
     LINEAR=3
+    MH_ATTENTION=4
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
@@ -30,7 +31,7 @@ class Layer(nx.DiGraph):
         return isinstance(other, Layer) and self.name == other.name
 
     def __repr__(self):
-        return f"Layer(name={self.name},\n type={self.type})"
+        return self.label
 
     def add_input(self, node):
         self.inputs.append(node)
@@ -65,6 +66,10 @@ class Layer(nx.DiGraph):
                 penwidth='2')
 
         for node in self.nodes():
+            if isinstance(node, Layer): ## idk
+                dot.subgraph(node.get_visual)
+                continue
+
             color = 'lightgrey'
             shape = 'box'
             style = 'filled'
@@ -300,3 +305,62 @@ class LinearLayer(Layer):
             self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
             self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
             self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
+
+class MHAttentionLayer(Layer):
+    def __init__(self, name, input_shape, embed_dim, num_heads, label="MultiHeadAttention"):
+        super().__init__(name, LayerType.MH_ATTENTION,  label+": "+name, False)
+        self.input_shape=input_shape
+        self.num_heads=num_heads
+        self.embed_dim=embed_dim
+
+        self._build_operations()
+
+    def get_torch(self):
+        return nn.MultiheadAttention(self.embed_dim, 
+                                    self.num_heads)
+
+    def _build_operations(self):
+        # blue
+        self.add_node(InputOP("Input" + self.name, [self.input_shape]))
+        self.add_input(self.get_node('Input' + self.name))
+        self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
+
+        self.add_node(InputOP("Q" + self.name, [self.embed_dim], "Q"))
+        self.add_node(InputOP("K" + self.name, [self.embed_dim], "K"))
+        self.add_node(InputOP("V" + self.name, [self.embed_dim], "V"))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("Q" + self.name))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("K" + self.name))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("V" + self.name))
+
+        for i in range(self.num_heads):
+            self.add_node(InputOP("Q" + str(i) + self.name, [self.embed_dim // self.num_heads], "Q" + str(i)))
+            self.add_node(InputOP("K" + str(i) + self.name, [self.embed_dim // self.num_heads], "K" + str(i)))
+            self.add_node(InputOP("V" + str(i) + self.name, [self.embed_dim // self.num_heads], "V" + str(i)))
+            self.add_edge(self.get_node("Q" + self.name), self.get_node("Q" + str(i) + self.name))
+            self.add_edge(self.get_node("K" + self.name), self.get_node("K" + str(i) + self.name))
+            self.add_edge(self.get_node("V" + self.name), self.get_node("V" + str(i) + self.name))
+
+            self.add_node(OutputOP("HeadOutput" + str(i) + self.name, [self.input_shape[1] // self.num_heads], "Head Out" + str(i)))
+
+        for i in range(self.num_heads):
+            self.add_node(DotProduct("DOTQK" + str(i) + self.name, [None], [None], "Dot Q K " + str(i)))  # TODO
+            self.add_node(Operation("SoftMax" + str(i) + self.name, label="SoftMax"))
+            self.add_node(DotProduct("DOTV" + str(i) + self.name, [None], [None], "Dot V " + str(i)))  # TODO
+
+            self.add_edge(self.get_node("Q" + str(i) + self.name), self.get_node("DOTQK" + str(i)+ self.name))
+            self.add_edge(self.get_node("K" + str(i) + self.name), self.get_node("DOTQK" + str(i)+ self.name))
+            self.add_edge(self.get_node("DOTQK"+ str(i) + self.name), self.get_node("SoftMax" + str(i) + self.name))
+            self.add_edge(self.get_node("SoftMax" + str(i) + self.name), self.get_node("DOTV" + str(i) + self.name))
+            self.add_edge(self.get_node("V" + str(i) + self.name), self.get_node("DOTV" + str(i) + self.name))
+            self.add_edge(self.get_node("DOTV"+ str(i) + self.name), self.get_node("HeadOutput" + str(i) + self.name))
+
+        # green
+        self.add_node(OutputOP("Output" + self.name, [self.input_shape[1]]))
+        self.add_output(self.get_node('Output' + self.name))
+
+        # macs
+        for i in range(self.num_heads):
+            self.add_edge(self.get_node("HeadOutput" + str(i) + self.name), self.get_node("Output" + self.name))
+
+            

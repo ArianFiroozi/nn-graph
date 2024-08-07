@@ -1,0 +1,24 @@
+// Multi-Head Attention
+digraph {
+	rankdir=LR
+	Input [label="Input (Q, K, V)" shape=box]
+	Split [label="Split into Heads" shape=box]
+	Head1 [label="Head 1" shape=box]
+	Head2 [label="Head 2" shape=box]
+	Head3 [label="Head 3" shape=box]
+	HeadN [label="Head N" shape=box]
+	Concat [label="Concatenate Heads" shape=box]
+	Linear [label="Linear Transformation" shape=box]
+	Output [label=Output shape=box]
+	Input -> Split
+	Split -> Head1
+	Split -> Head2
+	Split -> Head3
+	Split -> HeadN
+	Head1 -> Concat
+	Head2 -> Concat
+	Head3 -> Concat
+	HeadN -> Concat
+	Concat -> Linear
+	Linear -> Output
+}
