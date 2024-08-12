@@ -226,8 +226,7 @@ class Conv2dLayer(Layer):
                                 [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]],
                                 label="MAC" + str(i) + "," + str(j) + "," + str(k))
                     if isinstance(self.weight, torch.Tensor):
-                        mac.weight = self.weight[i]
-                        print(self.weight[0][0].shape)
+                        mac.weight = self.weight[i][:][weight_start_h:weight_end_h+1][weight_start_w:weight_end_w]
 
                     self.add_node(mac)                
                     self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
