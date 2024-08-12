@@ -7,9 +7,10 @@ import torch.nn as nn
 from enum import Enum
 import networkx as nx
 from nngraph.layer import *
+import json
 
 class Graph(nx.DiGraph):
-    def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
+    def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs', config_file='./nngraph/layer_config.json', excluded_params = ["weight"]):
         super().__init__()
         self.types = ['conv1d', 'conv2d', 'linear']
 
@@ -19,6 +20,8 @@ class Graph(nx.DiGraph):
         self.excluded=excluded_params
         self.output_path=output_path
 
+        with open(config_file, 'r') as f:
+            self.layer_config = json.load(f)
 
         self._read_pkl()
         self._build_graph()
@@ -109,46 +112,25 @@ class Graph(nx.DiGraph):
         return y
 
     def _build_layer(self, name, input_len=3)->Layer: #TODO: add output shapes for each layer
-        if self._get_layer_type(name) == 'conv1d':
-            in_channels=int(self.pkl_dump[name]['in_channels'])
-            out_channels=int(self.pkl_dump[name]['out_channels'])
-            kernel_size=list(self.pkl_dump[name]['kernel_size'])
-            stride=list(self.pkl_dump[name]['stride'])
-            padding=list(self.pkl_dump[name]['padding'])
-            dilation=[1] # change if added
-
-            return Conv1dLayer(name, in_channels, out_channels, kernel_size,
-                                input_len, stride, padding, dilation, weight=self.pkl_dump[name]['_parameters']['weight']) # may add sparsity
-
-        elif self._get_layer_type(name) == 'conv2d':
-            in_channels=int(self.pkl_dump[name]['in_channels'])
-            out_channels=int(self.pkl_dump[name]['out_channels'])
-            kernel_size=list(self.pkl_dump[name]['kernel_size'])
-            stride=list(self.pkl_dump[name]['stride'])
-            padding=list(self.pkl_dump[name]['padding'])
-            dilation=[1, 1] # change if added
-
-            return Conv2dLayer(name, in_channels, out_channels, kernel_size,
-                                input_len, input_len, stride, padding, dilation, weight=self.pkl_dump[name]['_parameters']['weight']) # may add sparsity
-
-        elif self._get_layer_type(name) == 'linear':
-            in_features = int(self.pkl_dump[name]['in_features'])
-            out_features = int(self.pkl_dump[name]['out_features'])
-            weight = self.pkl_dump[name]['_parameters']['weight']
-
-            return LinearLayer(name, in_features, out_features, weight)
-
-        elif self._get_layer_type(name) == 'attention':
-            embed_dim = int(self.pkl_dump[name]['embed_dim'])
-            num_heads = int(self.pkl_dump[name]['num_heads'])
-            return MHAttentionLayer(name, [input_len, 8], embed_dim, num_heads) # fix if output added
-            
-        else:
+        layer_type = self._get_layer_type(name)
+        if layer_type not in self.layer_config:
             label = name + '\n'
             for k in self.pkl_dump[name].keys():
                 if not k.startswith('_'):
                     label += str(k) + ": " + str(self.pkl_dump[name][k]) + "\n"
             return Layer(name, LayerType.UNKNOWN, label)
+
+        config = self.layer_config[layer_type]
+        params = {param: (self.pkl_dump[name][param]) for param in config['params']}
+        
+        if layer_type == 'conv1d':
+            return Conv1dLayer(name, **params, input_length=input_len, weight=self.pkl_dump[name]['_parameters']['weight'])
+        elif layer_type == 'conv2d':
+            return Conv2dLayer(name, **params, input_width=input_len, input_height=input_len, weight=self.pkl_dump[name]['_parameters']['weight'])
+        elif layer_type == 'linear':
+            return LinearLayer(name, **params, weight=self.pkl_dump[name]['_parameters']['weight'])
+        elif layer_type == 'attention':
+            return MHAttentionLayer(name, [input_len, 8], **params)
 
     def _build_graph(self, show_sublayers=True):
         prev_layer = None
