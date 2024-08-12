@@ -103,6 +103,7 @@ class Graph(nx.DiGraph):
 
         return y
 
+    #TODO: external layer addition
     def _build_layer(self, name, input_len=3)->Layer: #TODO: add output shapes for each layer
         if self._get_layer_type(name) == 'conv1d':
             in_channels=int(self.pkl_dump[name]['in_channels'])
@@ -113,7 +114,7 @@ class Graph(nx.DiGraph):
             dilation=[1] # change if added
 
             return Conv1dLayer(name, in_channels, out_channels, kernel_size,
-                                input_len, stride, padding, dilation) # may add sparsity
+                                input_len, stride, padding, dilation, weight=self.pkl_dump[name]['_parameters']['weight']) # may add sparsity
 
         elif self._get_layer_type(name) == 'conv2d':
             in_channels=int(self.pkl_dump[name]['in_channels'])
@@ -124,7 +125,7 @@ class Graph(nx.DiGraph):
             dilation=[1, 1] # change if added
 
             return Conv2dLayer(name, in_channels, out_channels, kernel_size,
-                                input_len, input_len, stride, padding, dilation) # may add sparsity
+                                input_len, input_len, stride, padding, dilation, weight=self.pkl_dump[name]['_parameters']['weight']) # may add sparsity
 
         elif self._get_layer_type(name) == 'linear':
             in_features = int(self.pkl_dump[name]['in_features'])
@@ -135,7 +136,7 @@ class Graph(nx.DiGraph):
         elif self._get_layer_type(name) == 'attention':
             embed_dim = int(self.pkl_dump[name]['embed_dim'])
             num_heads = int(self.pkl_dump[name]['num_heads'])
-
+            print(self.pkl_dump[name])
             return MHAttentionLayer(name, [input_len, 8], embed_dim, num_heads) # fix if output added
             
         else:

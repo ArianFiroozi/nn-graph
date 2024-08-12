@@ -60,15 +60,20 @@ class DilationOP(Operation):
         return self.label + ": " + str(self.dilation)
 
 class MacOP(Operation):
-    def __init__(self, name:str, input_index, weight_index, label:str="MAC"):
+    def __init__(self, name:str, input_index, weight_index, weight=None, label:str="MAC"):
         super().__init__(name, OperationType.MAC, label)
         self.input_index=input_index
         self.weight_index=weight_index
+        self.weight=weight
 
     def get_label(self):
         printable = self.label + ":" 
         printable += "\nX" + str(self.input_index) 
         printable += "\nW" + str(self.weight_index)
+
+        if isinstance(self.weight, torch.Tensor):
+            printable += "\nWeight: " + str([i.item() for i in self.weight])
+
         return printable
 
 class ConstOP(Operation):

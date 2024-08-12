@@ -93,7 +93,7 @@ class Layer(nx.DiGraph):
 
 class Conv1dLayer(Layer):
     def __init__(self, name:str, in_channels, out_channels, kernel_size, input_length,
-                stride=[1], padding=[1], dilation=[1], bias=None, sparsity=0.0, label="Conv1d"):
+                stride=[1], padding=[1], dilation=[1], bias=None, weight=None, sparsity=0.0, label="Conv1d"):
         super().__init__(name, LayerType.CONV1D, label+": "+name, False)
         self.in_channels=in_channels
         self.out_channels=out_channels
@@ -103,8 +103,8 @@ class Conv1dLayer(Layer):
         self.padding = padding[0]
         self.dilation = dilation[0]
         self.sparsity = sparsity
-        # self.weight = nn.Parameter(torch.randn(out_channels, in_channels, kernel_size))
-        # self.bias = nn.Parameter(torch.zeros(out_channels)) if bias is None else bias
+        self.weight = weight
+        self.bias = nn.Parameter(torch.zeros(out_channels)) if bias is None else bias
         
         self._build_operations()
 
@@ -143,12 +143,18 @@ class Conv1dLayer(Layer):
                 input_start = j * self.stride - self.padding
                 weight_start = 0 
                 weight_end = self.kernel_size - 1
+                
+                mac = MacOP(mac_node_name, [input_start, input_start+self.kernel_size],
+                                [weight_start, weight_end], "MAC" + str(i) + "," + str(j))
+                if self.weight is not None:
+                    mac.weight = self.weight[weight_start:weight_end]
 
-                self.add_node(MacOP(mac_node_name, [input_start, input_start+self.kernel_size],
-                                [weight_start, weight_end], "MAC" + str(i) + "," + str(j)))                
+                self.add_node(mac)                
                 self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+
+
         
         for i in range(self.out_channels):
             self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
@@ -158,7 +164,7 @@ class Conv1dLayer(Layer):
 
 class Conv2dLayer(Layer):
     def __init__(self, name: str, in_channels, out_channels, kernel_size, input_height, input_width,
-                 stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, sparsity=0.0, label="Conv2d"):
+                 stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, weight=None, sparsity=0.0, label="Conv2d"):
         super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -169,6 +175,7 @@ class Conv2dLayer(Layer):
         self.padding = padding
         self.dilation = dilation
         self.sparsity = sparsity
+        self.weight=weight
         
         self._build_operations()
 
@@ -213,11 +220,16 @@ class Conv2dLayer(Layer):
                     weight_end_h = self.kernel_size[0] - 1
                     weight_end_w = self.kernel_size[1] - 1
 
-                    self.add_node(MacOP(mac_node_name, 
+                    mac = MacOP(mac_node_name, 
                                         [[input_start_h, input_start_h + self.kernel_size[0]], 
                                         [input_start_w, input_start_w + self.kernel_size[1]]],
                                         [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]], 
-                                        "MAC" + str(i) + "," + str(j) + "," + str(k)))                
+                                        "MAC" + str(i) + "," + str(j) + "," + str(k))
+                    if isinstance(self.weight, torch.Tensor):
+                        mac.weight = self.weight
+                        print(self.weight.shape)
+
+                    self.add_node(mac)                
                     self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
                     self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
                     self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
@@ -323,15 +335,15 @@ class MHAttentionLayer(Layer):
         # blue
         self.add_node(InputOP("Input" + self.name, [self.input_shape]))
         self.add_input(self.get_node('Input' + self.name))
-        self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
+        # self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
+        # self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
 
         self.add_node(InputOP("Q" + self.name, [self.embed_dim], "Q"))
         self.add_node(InputOP("K" + self.name, [self.embed_dim], "K"))
         self.add_node(InputOP("V" + self.name, [self.embed_dim], "V"))
-        self.add_edge(self.get_node("Project" + self.name), self.get_node("Q" + self.name))
-        self.add_edge(self.get_node("Project" + self.name), self.get_node("K" + self.name))
-        self.add_edge(self.get_node("Project" + self.name), self.get_node("V" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Q" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("K" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("V" + self.name))
 
         for i in range(self.num_heads):
             self.add_node(InputOP("Q" + str(i) + self.name, [self.embed_dim // self.num_heads], "Q" + str(i)))
@@ -362,5 +374,4 @@ class MHAttentionLayer(Layer):
         # macs
         for i in range(self.num_heads):
             self.add_edge(self.get_node("HeadOutput" + str(i) + self.name), self.get_node("Output" + self.name))
-
-            
+  
