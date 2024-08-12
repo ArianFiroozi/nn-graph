@@ -147,7 +147,7 @@ class Conv1dLayer(Layer):
                 mac = MacOP(mac_node_name, [input_start, input_start+self.kernel_size],
                                 [weight_start, weight_end], "MAC" + str(i) + "," + str(j))
                 if self.weight is not None:
-                    mac.weight = self.weight[weight_start:weight_end]
+                    mac.weight = self.weight[weight_start:weight_end+1]
 
                 self.add_node(mac)                
                 self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
@@ -282,10 +282,11 @@ class Conv2dLayer(Layer):
                 self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
 
 class LinearLayer(Layer):
-    def __init__(self, name, in_features, out_features, label="Linear"):
+    def __init__(self, name, in_features, out_features, weight=None, label="Linear"):
         super().__init__(name, LayerType.LINEAR,  label+": "+name, False)
         self.in_features=in_features
         self.out_features=out_features
+        self.weight=weight
 
         self._build_operations()
 
@@ -311,9 +312,13 @@ class LinearLayer(Layer):
             mac_node_name = f'Mac{self.name}_{i}'
             input_start = 0
             weight_start = 0 
+            mac = MacOP(mac_node_name, [input_start, input_start+self.in_features],
+                            [i], "MAC" + str(i))
 
-            self.add_node(MacOP(mac_node_name, [input_start, input_start+self.in_features],
-                            [i], "MAC" + str(i)))
+            if self.weight is not None:
+                mac.weight = self.weight[i]
+
+            self.add_node(mac)
             self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
             self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
             self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
@@ -335,15 +340,15 @@ class MHAttentionLayer(Layer):
         # blue
         self.add_node(InputOP("Input" + self.name, [self.input_shape]))
         self.add_input(self.get_node('Input' + self.name))
-        # self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
-        # self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
+        self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
 
         self.add_node(InputOP("Q" + self.name, [self.embed_dim], "Q"))
         self.add_node(InputOP("K" + self.name, [self.embed_dim], "K"))
         self.add_node(InputOP("V" + self.name, [self.embed_dim], "V"))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("Q" + self.name))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("K" + self.name))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("V" + self.name))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("Q" + self.name))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("K" + self.name))
+        self.add_edge(self.get_node("Project" + self.name), self.get_node("V" + self.name))
 
         for i in range(self.num_heads):
             self.add_node(InputOP("Q" + str(i) + self.name, [self.embed_dim // self.num_heads], "Q" + str(i)))

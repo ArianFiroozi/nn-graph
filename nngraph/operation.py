@@ -71,8 +71,8 @@ class MacOP(Operation):
         printable += "\nX" + str(self.input_index) 
         printable += "\nW" + str(self.weight_index)
 
-        if isinstance(self.weight, torch.Tensor):
-            printable += "\nWeight: " + str([i.item() for i in self.weight])
+        # if isinstance(self.weight, torch.Tensor):
+            # printable += "\nWeight: " + str([i.item() for i in self.weight])
 
         return printable
 

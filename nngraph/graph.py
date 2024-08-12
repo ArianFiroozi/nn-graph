@@ -130,13 +130,13 @@ class Graph(nx.DiGraph):
         elif self._get_layer_type(name) == 'linear':
             in_features = int(self.pkl_dump[name]['in_features'])
             out_features = int(self.pkl_dump[name]['out_features'])
+            weight = self.pkl_dump[name]['_parameters']['weight']
 
-            return LinearLayer(name, in_features, out_features)
+            return LinearLayer(name, in_features, out_features, weight)
 
         elif self._get_layer_type(name) == 'attention':
             embed_dim = int(self.pkl_dump[name]['embed_dim'])
             num_heads = int(self.pkl_dump[name]['num_heads'])
-            print(self.pkl_dump[name])
             return MHAttentionLayer(name, [input_len, 8], embed_dim, num_heads) # fix if output added
             
         else:
