@@ -9,7 +9,7 @@ import networkx as nx
 from nngraph.layer import *
 
 class Graph(nx.DiGraph):
-    def __init__(self, input_pkl_path='./models/model_big.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
+    def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs', excluded_params = ["weight"]):
         super().__init__()
         self.types = ['conv1d', 'conv2d', 'linear']
 
@@ -23,6 +23,11 @@ class Graph(nx.DiGraph):
         self._read_pkl()
         self._build_graph()
     
+    def add_layer(self, layer:Layer, append_latest=False):
+        self.add_node(layer)
+        if append_latest and self.__len__()>1:
+            self.add_edge(layer, self.nodes[-1])
+
     def visualize(self):
         self._render_operational()
 
@@ -103,7 +108,6 @@ class Graph(nx.DiGraph):
 
         return y
 
-    #TODO: external layer addition
     def _build_layer(self, name, input_len=3)->Layer: #TODO: add output shapes for each layer
         if self._get_layer_type(name) == 'conv1d':
             in_channels=int(self.pkl_dump[name]['in_channels'])

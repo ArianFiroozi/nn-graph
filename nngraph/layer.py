@@ -221,13 +221,13 @@ class Conv2dLayer(Layer):
                     weight_end_w = self.kernel_size[1] - 1
 
                     mac = MacOP(mac_node_name, 
-                                        [[input_start_h, input_start_h + self.kernel_size[0]], 
-                                        [input_start_w, input_start_w + self.kernel_size[1]]],
-                                        [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]], 
-                                        "MAC" + str(i) + "," + str(j) + "," + str(k))
+                                [[input_start_h, input_start_h + self.kernel_size[0]-1], 
+                                [input_start_w, input_start_w + self.kernel_size[1]-1]],
+                                [[weight_start_h, weight_end_h], [weight_start_w, weight_end_w]],
+                                label="MAC" + str(i) + "," + str(j) + "," + str(k))
                     if isinstance(self.weight, torch.Tensor):
-                        mac.weight = self.weight
-                        print(self.weight.shape)
+                        mac.weight = self.weight[i]
+                        print(self.weight[0][0].shape)
 
                     self.add_node(mac)                
                     self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
@@ -244,42 +244,48 @@ class Conv2dLayer(Layer):
     def _calc_out_width(self):
         return (self.input_width + 2 * self.padding[1] - self.dilation[1] * (self.kernel_size[1] - 1) - 1) // self.stride[1] + 1
 
-    class LinearLayer(Layer):
-        def __init__(self, name, in_features, out_features, label="Linear"):
-            super().__init__(name, LayerType.LINEAR,  label+": "+name, False)
-            self.in_features=in_features
-            self.out_features=out_features
+    def get_visual(self):
+        dot = Digraph('cluster_' + self.name)
+        dot.attr(label=self.label,
+                style='dashed',
+                color='black', 
+                penwidth='2')
 
-            self._build_operations()
+        for node in self.nodes():
+            if isinstance(node, Layer):
+                dot.subgraph(node.get_visual)
+                continue
 
-        def get_torch(self):
-            return nn.Linear(   
-                    in_features=int(self.in_features),
-                    out_features=int(self.out_features)
-                )
+            if isinstance(node, MacOP) and not node.get_name().startswith(f'Mac{self.name}_0'):
+                continue
+            if isinstance(node, OutputOP) and not node.get_name().startswith(f'Output_c0{self.name}'):
+                if node.get_name().startswith('Output_c'):
+                    continue   
 
-        def _build_operations(self):
-            # blue
-            self.add_node(ConstOP("Weight" + self.name, [self.out_features, self.in_features], "Weight"))
-            self.add_node(InputOP("Input" + self.name, [self.in_features]))
-            self.add_input(self.get_node('Input' + self.name))
+            color = 'lightgrey'
+            shape = 'box'
+            style = 'filled'
 
-            #green
-            self.add_node(OutputOP("Output" + self.name, [self.out_features]))
-            self.add_output(self.get_node('Output' + self.name))
+            if isinstance(node, InputOP) or isinstance(node, ConstOP):
+                color = 'lightblue'
+            elif isinstance(node, OutputOP):
+                color = 'lightgreen'
+            if isinstance(node, PaddOP) or isinstance(node, DilationOP):
+                shape = 'ellipse'
 
-            #macs
-            for i in range(self.out_features):
-                
-                mac_node_name = f'Mac{self.name}_{i}'
-                input_start = 0
-                weight_start = 0 
+            dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
-                self.add_node(MacOP(mac_node_name, [input_start, input_start+self.in_features],
-                                [i], "MAC" + str(i)))
-                self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node(mac_node_name), self.get_node('Output' + self.name))
+            for input_name in node.inputs:
+                dot.edge(input_name, node.get_name())
+
+        for edge in self.edges():
+            if (edge[0].get_name().startswith("Mac") and not edge[0].get_name().startswith(f'Mac{self.name}_0')) or (edge[1].get_name().startswith("Mac") and not edge[1].get_name().startswith(f'Mac{self.name}_0')):
+                continue
+            if (edge[0].get_name().startswith("Output_c") and not edge[0].get_name().startswith(f'Output_c0{self.name}')) or edge[1].get_name().startswith("Output_c") and not edge[1].get_name().startswith(f'Output_c0{self.name}'):
+                continue
+            dot.edge(edge[0].get_name(), edge[1].get_name())
+
+        return dot
 
 class LinearLayer(Layer):
     def __init__(self, name, in_features, out_features, weight=None, label="Linear"):
