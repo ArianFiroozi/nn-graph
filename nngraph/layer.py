@@ -11,6 +11,7 @@ class LayerType(Enum):
     CONV2D=2
     LINEAR=3
     MH_ATTENTION=4
+    ACTIVATION=5
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
@@ -57,6 +58,11 @@ class Layer(nx.DiGraph):
 
         self.add_edge(self.get_node('Input'+self.name), self.get_node('OP'+self.name))
         self.add_edge(self.get_node('OP'+self.name), self.get_node('Output'+self.name))
+
+    def get_output_shape(self):
+        output = self.get_node("Output" + self.name)
+        assert(isinstance(output, OutputOP))
+        return output.shape
 
     def get_visual(self):
         dot = Digraph('cluster_' + self.name)
@@ -384,4 +390,41 @@ class MHAttentionLayer(Layer):
         # macs
         for i in range(self.num_heads):
             self.add_edge(self.get_node("HeadOutput" + str(i) + self.name), self.get_node("Output" + self.name))
-  
+
+class GluLayer(Layer):
+    def __init__(self, name, input_shape, dim=-1, label="GLU"):
+        super().__init__(name, LayerType.ACTIVATION,  label+": "+name, False)
+        self.input_shape=input_shape
+        self.dim=dim
+
+        self._build_operations()
+
+    def get_torch(self):
+        return nn.GLU(self.dim)
+
+    def __calc_out_shape(self):
+        out_shape=self.input_shape.copy()
+        out_shape[self.dim] = out_shape[self.dim] // 2
+        return out_shape
+
+    def _build_operations(self):
+        # blue
+        self.add_node(InputOP("Input" + self.name, [self.input_shape]))
+        self.add_input(self.get_node('Input'+self.name))
+        self.add_node(InputOP("Input1" + self.name, [self.__calc_out_shape()]))
+        self.add_node(InputOP("Input2" + self.name, [self.__calc_out_shape()]))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Input1" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Input2" + self.name))
+
+        #green
+        self.add_node(OutputOP("Output" + self.name, self.__calc_out_shape()))
+        self.add_output(self.get_node('Output'+self.name))
+
+        self.add_node(Operation("Sigmoid" + self.name, label="Sigmoid"))
+        self.add_edge(self.get_node("Input2" + self.name), self.get_node("Sigmoid" + self.name))
+
+        self.add_node(Operation("Element-Wise Mult" + self.name, label="Element-Wise Mult"))
+        self.add_edge(self.get_node("Sigmoid" + self.name), self.get_node("Element-Wise Mult" + self.name))
+        self.add_edge(self.get_node("Input1" + self.name), self.get_node("Element-Wise Mult" + self.name))
+        
+        self.add_edge(self.get_node("Element-Wise Mult" + self.name), self.get_node("Output" + self.name))

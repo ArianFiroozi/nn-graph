@@ -1,7 +1,5 @@
 import torch
 from graphviz import Digraph
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import pickle
 import torch.nn as nn
 from enum import Enum
@@ -9,7 +7,6 @@ import networkx as nx
 from nngraph.layer import *
 import json
 from torchviz import make_dot
-
 
 class Graph(nx.DiGraph):
     def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs',

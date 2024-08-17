@@ -1,11 +1,9 @@
-import torch
-import matplotlib.pyplot as plt
-import networkx as nx
 from nngraph.graph import Graph
 import argparse
+from nngraph.layer import GluLayer
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input_pkl_path", default='./models/model3.pkl', type=str, help='pikle input path')
+parser.add_argument("--input_pkl_path", default='./models/model_big.pkl', type=str, help='pikle input path')
 parser.add_argument('--output_path', default='./nngraph/outputs', type=str, help='output images path')
 parser.add_argument("--config_file_path", default='./nngraph/layer_config.json', type=str, help="config file path")
 parser.add_argument("--excluded_params", default=["weight", "in_proj_weight", "in_proj_bias", "bias"], type=list, help="Parameters to exclude when building graph")
@@ -17,4 +15,5 @@ args = parser.parse_args()
 args.do_lower_case = True
 
 g=Graph(args.input_pkl_path, args.output_path, args.config_file_path, args.excluded_params)
+g.add_layer(GluLayer("myglu", [3,2]))
 g.visualize(args.visualize_operational, args.visualize_layers, args.visualize_torch_funcs)
