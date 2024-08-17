@@ -10,7 +10,8 @@ from torchviz import make_dot
 
 class Graph(nx.DiGraph):
     def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs',
-                config_file='./nngraph/layer_config.json', excluded_params = ["weight", "in_proj_weight", "in_proj_bias"]):
+                config_file='./nngraph/layer_config.json', excluded_params = ["weight", "in_proj_weight", "in_proj_bias"],
+                input_shape=[3,3]):
         super().__init__()
 
         self.input_pkl_path=input_pkl_path
@@ -18,6 +19,7 @@ class Graph(nx.DiGraph):
         self.layer_names=[]
         self.excluded=excluded_params
         self.output_path=output_path
+        self.input_shape=input_shape
 
         with open(config_file, 'r') as f:
             self.layer_config = json.load(f)
@@ -83,13 +85,15 @@ class Graph(nx.DiGraph):
         else:
             return None
 
-    def _build_layer(self, name, input_len=[3,3])->Layer:
-        input_shape = self._last_layer()
-        if input_shape is None:
-            input_shape=input_len
+    def get_output_shape(self):
+        last_layer = self._last_layer()
+        if last_layer is None:
+            return self.input_shape
         else:
-            input_shape=input_shape.get_output_shape()
-            ###########TODO:__init__
+            return last_layer.get_output_shape()
+
+    def _build_layer(self, name)->Layer:
+        input_shape = self.get_output_shape()
 
         layer_type = self._get_layer_type(name)
         if layer_type not in self.layer_config:
@@ -103,15 +107,15 @@ class Graph(nx.DiGraph):
         params = {param: (self.pkl_dump[name][param]) for param in config['params']}
 
         if layer_type == 'conv1d':
-            return Conv1dLayer(name, **params, input_length=input_len, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
+            return Conv1dLayer(name, **params, input_length=input_shape, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'conv2d':
-            return Conv2dLayer(name, **params, input_width=input_len[0], input_height=input_len[1], weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
+            return Conv2dLayer(name, **params, input_width=input_shape[0], input_height=input_shape[1], 
+            weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'linear':
             return LinearLayer(name, **params, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'attention':
-            return MHAttentionLayer(name, [input_len, 8], **params)
+            return MHAttentionLayer(name, input_shape, **params)
         elif layer_type == 'glu':
-            print(self._last_layer().get_output_shape())
             return GluLayer(name, input_shape, **params)
 
     def _build_graph(self, show_sublayers=True):

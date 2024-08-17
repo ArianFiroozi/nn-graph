@@ -379,9 +379,9 @@ class MHAttentionLayer(Layer):
         self.add_edge(self.get_node("Project" + self.name), self.get_node("V" + self.name))
 
         for i in range(self.num_heads):
-            self.add_node(InputOP("Q" + str(i) + self.name, [self.embed_dim // self.num_heads], "Q" + str(i)))
-            self.add_node(InputOP("K" + str(i) + self.name, [self.embed_dim // self.num_heads], "K" + str(i)))
-            self.add_node(InputOP("V" + str(i) + self.name, [self.embed_dim // self.num_heads], "V" + str(i)))
+            self.add_node(InputOP("Q" + str(i) + self.name, [1, self.embed_dim // self.num_heads], "Q" + str(i)))
+            self.add_node(InputOP("K" + str(i) + self.name, [1, self.embed_dim // self.num_heads], "K" + str(i)))
+            self.add_node(InputOP("V" + str(i) + self.name, [1, self.embed_dim // self.num_heads], "V" + str(i)))
             self.add_edge(self.get_node("Q" + self.name), self.get_node("Q" + str(i) + self.name))
             self.add_edge(self.get_node("K" + self.name), self.get_node("K" + str(i) + self.name))
             self.add_edge(self.get_node("V" + self.name), self.get_node("V" + str(i) + self.name))
@@ -389,9 +389,11 @@ class MHAttentionLayer(Layer):
             self.add_node(OutputOP("HeadOutput" + str(i) + self.name, [1, self.input_shape[1] // self.num_heads], "Head Out" + str(i)))
 
         for i in range(self.num_heads):
-            self.add_node(DotProduct("DOTQK" + str(i) + self.name, [None], [None], "Dot Q K " + str(i)))  # TODO
+            self.add_node(DotProduct("DOTQK" + str(i) + self.name, self.get_node("Q" + str(i) + self.name).shape, 
+                            self.get_node("K" + str(i) + self.name).shape, "Dot Q K " + str(i)))
             self.add_node(Operation("SoftMax" + str(i) + self.name, label="SoftMax"))
-            self.add_node(DotProduct("DOTV" + str(i) + self.name, [None], [None], "Dot V " + str(i)))  # TODO
+            self.add_node(DotProduct("DOTV" + str(i) + self.name, self.get_node("Q" + str(i) + self.name).shape, 
+                            self.get_node("V" + str(i) + self.name).shape, "Dot V " + str(i)))
 
             self.add_edge(self.get_node("Q" + str(i) + self.name), self.get_node("DOTQK" + str(i)+ self.name))
             self.add_edge(self.get_node("K" + str(i) + self.name), self.get_node("DOTQK" + str(i)+ self.name))
