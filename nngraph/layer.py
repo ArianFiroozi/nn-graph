@@ -15,13 +15,15 @@ class LayerType(Enum):
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
-    def __init__(self, name:str, type:LayerType, label:str="OP", build_dummy_op=True):
+    def __init__(self, name:str, type:LayerType, label:str="Layer", build_dummy_op=True, input_shape=[None]):
         super().__init__()
         self.name=name # unique
         self.label=label
         self.type=type
         self.inputs=[]
         self.outputs=[]
+        self.input_shape=input_shape
+
         if build_dummy_op:
             self._build_operations()
 
@@ -33,6 +35,10 @@ class Layer(nx.DiGraph):
 
     def __repr__(self):
         return self.label
+
+    def get_torch(self):
+        print("layer: unknown layer type->"+self.name)
+        return None
 
     def add_input(self, node):
         self.inputs.append(node)
@@ -50,17 +56,17 @@ class Layer(nx.DiGraph):
         return self.name
 
     def _build_operations(self):
-        self.add_node(InputOP('Input'+self.name,[None]))
+        self.add_node(InputOP('Input'+self.name, self.input_shape))
         self.add_input(self.get_node('Input'+self.name))
         self.add_node(Operation('OP'+self.name, label=self.name))
-        self.add_node(OutputOP('Output'+self.name,[None]))
+        self.add_node(OutputOP('Output'+self.name, self.input_shape))
         self.add_output(self.get_node('Output'+self.name))
 
         self.add_edge(self.get_node('Input'+self.name), self.get_node('OP'+self.name))
         self.add_edge(self.get_node('OP'+self.name), self.get_node('Output'+self.name))
 
     def get_output_shape(self):
-        output = self.get_node("Output" + self.name)
+        output = self.outputs[0] ##only one
         assert(isinstance(output, OutputOP))
         return output.shape
 
@@ -99,12 +105,12 @@ class Layer(nx.DiGraph):
 
 class Conv1dLayer(Layer):
     def __init__(self, name:str, in_channels, out_channels, kernel_size, input_length,
-                stride=[1], padding=[1], dilation=[1], bias=None, weight=None, sparsity=0.0, label="Conv1d"):
-        super().__init__(name, LayerType.CONV1D, label+": "+name, False)
+                stride=[1], padding=[1], dilation=[1], bias=None, weight=None, sparsity=0.0, label="Conv1d", input_shape=None):
+        super().__init__(name, LayerType.CONV1D, label+": "+name, False,  input_shape)
         self.in_channels=in_channels
         self.out_channels=out_channels
         self.kernel_size = kernel_size[0]
-        self.input_length = input_length
+        self.input_length = input_length[0]
         self.stride = stride[0]
         self.padding = padding[0]
         self.dilation = dilation[0]
@@ -115,13 +121,15 @@ class Conv1dLayer(Layer):
         self._build_operations()
 
     def get_torch(self):
-        return nn.Conv1d(
+        torch_layer = nn.Conv1d(
                 in_channels=self.in_channels,
                 out_channels=self.out_channels,
                 kernel_size=self.kernel_size,
                 stride=self.stride,
                 padding=self.padding
             )
+        x = torch.randn(self.weight.shape)
+        return torch_layer(x)
 
     def _build_operations(self):
         # blue
@@ -138,7 +146,7 @@ class Conv1dLayer(Layer):
         self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
 
         #green
-        self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_size()]))
+        self.add_node(OutputOP("Output" + self.name, [1, self.out_channels, self._calc_out_size()])) ##batch size 1
         self.add_output(self.get_node('Output' + self.name))
 
         #macs
@@ -170,29 +178,32 @@ class Conv1dLayer(Layer):
 
 class Conv2dLayer(Layer):
     def __init__(self, name: str, in_channels, out_channels, kernel_size, input_height, input_width,
-                 stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, weight=None, sparsity=0.0, label="Conv2d"):
-        super().__init__(name, LayerType.CONV2D, label + ": " + name, False)
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size 
-        self.input_height = input_height
-        self.input_width = input_width
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.sparsity = sparsity
+                 stride=[1, 1], padding=[1, 1], dilation=[1, 1], bias=None, weight=None, sparsity=0.0, label="Conv2d", input_shape=None):
+        super().__init__(name, LayerType.CONV2D, label + ": " + name, False, input_shape)
+        self.in_channels=in_channels
+        self.out_channels=out_channels
+        self.kernel_size=kernel_size 
+        self.input_height=input_height
+        self.input_width=input_width
+        self.stride=stride
+        self.padding=padding
+        self.dilation=dilation
+        self.sparsity=sparsity
         self.weight=weight
         
         self._build_operations()
 
     def get_torch(self):
-        return nn.Conv2d(
+        torch_layer = nn.Conv2d(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
             kernel_size=self.kernel_size,
             stride=self.stride,
             padding=self.padding
         )
+
+        x = torch.randn(self.weight.shape)
+        return torch_layer(x)
 
     def _build_operations(self):
         # blue
@@ -210,7 +221,7 @@ class Conv2dLayer(Layer):
         self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
 
         # green
-        self.add_node(OutputOP("Output" + self.name, [self.out_channels, self._calc_out_height(), self._calc_out_width()]))
+        self.add_node(OutputOP("Output" + self.name, [1, self.out_channels, self._calc_out_height(), self._calc_out_width()]))
         self.add_output(self.get_node("Output" + self.name))
 
         # macs
@@ -293,8 +304,8 @@ class Conv2dLayer(Layer):
         return dot
 
 class LinearLayer(Layer):
-    def __init__(self, name, in_features, out_features, weight=None, label="Linear"):
-        super().__init__(name, LayerType.LINEAR,  label+": "+name, False)
+    def __init__(self, name, in_features, out_features, weight=None, label="Linear", input_shape=None):
+        super().__init__(name, LayerType.LINEAR,  label+": "+name, False,  input_shape)
         self.in_features=in_features
         self.out_features=out_features
         self.weight=weight
@@ -302,10 +313,13 @@ class LinearLayer(Layer):
         self._build_operations()
 
     def get_torch(self):
-        return nn.Linear(   
+        torch_layer = nn.Linear(   
                 in_features=int(self.in_features),
                 out_features=int(self.out_features)
             )
+        
+        x = torch.randn(1, self.in_features)
+        return torch_layer(x)
 
     def _build_operations(self):
         # blue
@@ -314,7 +328,7 @@ class LinearLayer(Layer):
         self.add_input(self.get_node('Input'+self.name))
 
         #green
-        self.add_node(OutputOP("Output" + self.name, [self.out_features]))
+        self.add_node(OutputOP("Output" + self.name, [1, self.out_features]))
         self.add_output(self.get_node('Output'+self.name))
 
         #macs
@@ -336,22 +350,25 @@ class LinearLayer(Layer):
 
 class MHAttentionLayer(Layer):
     def __init__(self, name, input_shape, embed_dim, num_heads, label="MultiHeadAttention"):
-        super().__init__(name, LayerType.MH_ATTENTION,  label+": "+name, False)
-        self.input_shape=input_shape
+        super().__init__(name, LayerType.MH_ATTENTION,  label+": "+name, False, input_shape)
         self.num_heads=num_heads
         self.embed_dim=embed_dim
 
         self._build_operations()
 
     def get_torch(self):
-        return nn.MultiheadAttention(self.embed_dim, 
+        torch_layer = nn.MultiheadAttention(self.embed_dim, 
                                     self.num_heads)
+
+        x = torch.randn(self.input_shape[1], self.embed_dim)
+        y, _ = torch_layer(x, x, x)
+        return y
 
     def _build_operations(self):
         # blue
-        self.add_node(InputOP("Input" + self.name, [self.input_shape]))
+        self.add_node(InputOP("Input" + self.name, self.input_shape))
         self.add_input(self.get_node('Input' + self.name))
-        self.add_node(ProjectOP("Project" + self.name, [self.input_shape]))
+        self.add_node(ProjectOP("Project" + self.name, self.input_shape))
         self.add_edge(self.get_node("Input" + self.name), self.get_node("Project" + self.name))
 
         self.add_node(InputOP("Q" + self.name, [self.embed_dim], "Q"))
@@ -369,7 +386,7 @@ class MHAttentionLayer(Layer):
             self.add_edge(self.get_node("K" + self.name), self.get_node("K" + str(i) + self.name))
             self.add_edge(self.get_node("V" + self.name), self.get_node("V" + str(i) + self.name))
 
-            self.add_node(OutputOP("HeadOutput" + str(i) + self.name, [self.input_shape[1] // self.num_heads], "Head Out" + str(i)))
+            self.add_node(OutputOP("HeadOutput" + str(i) + self.name, [1, self.input_shape[1] // self.num_heads], "Head Out" + str(i)))
 
         for i in range(self.num_heads):
             self.add_node(DotProduct("DOTQK" + str(i) + self.name, [None], [None], "Dot Q K " + str(i)))  # TODO
@@ -384,7 +401,7 @@ class MHAttentionLayer(Layer):
             self.add_edge(self.get_node("DOTV"+ str(i) + self.name), self.get_node("HeadOutput" + str(i) + self.name))
 
         # green
-        self.add_node(OutputOP("Output" + self.name, [self.input_shape[1]]))
+        self.add_node(OutputOP("Output" + self.name, [1, self.input_shape[1]]))
         self.add_output(self.get_node('Output' + self.name))
 
         # macs
@@ -393,14 +410,15 @@ class MHAttentionLayer(Layer):
 
 class GluLayer(Layer):
     def __init__(self, name, input_shape, dim=-1, label="GLU"):
-        super().__init__(name, LayerType.ACTIVATION,  label+": "+name, False)
-        self.input_shape=input_shape
+        super().__init__(name, LayerType.ACTIVATION,  label+": "+name, False, input_shape)
         self.dim=dim
 
         self._build_operations()
 
     def get_torch(self):
-        return nn.GLU(self.dim)
+        torch_layer = nn.GLU(dim=self.dim)
+        x = torch.randn(self.input_shape)
+        return torch_layer(x)
 
     def __calc_out_shape(self):
         out_shape=self.input_shape.copy()
@@ -409,10 +427,10 @@ class GluLayer(Layer):
 
     def _build_operations(self):
         # blue
-        self.add_node(InputOP("Input" + self.name, [self.input_shape]))
+        self.add_node(InputOP("Input" + self.name, self.input_shape))
         self.add_input(self.get_node('Input'+self.name))
-        self.add_node(InputOP("Input1" + self.name, [self.__calc_out_shape()]))
-        self.add_node(InputOP("Input2" + self.name, [self.__calc_out_shape()]))
+        self.add_node(InputOP("Input1" + self.name, self.__calc_out_shape()))
+        self.add_node(InputOP("Input2" + self.name, self.__calc_out_shape()))
         self.add_edge(self.get_node("Input" + self.name), self.get_node("Input1" + self.name))
         self.add_edge(self.get_node("Input" + self.name), self.get_node("Input2" + self.name))
 

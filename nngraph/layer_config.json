@@ -14,5 +14,9 @@
     "attention": {
         "class": "MHAttentionLayer",
         "params": ["embed_dim", "num_heads"]
+    },
+    "glu": {
+        "class": "GluLayer",
+        "params": ["dim"]
     }
 }

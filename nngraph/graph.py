@@ -38,6 +38,12 @@ class Graph(nx.DiGraph):
         if torch_functions:
             self._render_torch_functions()
 
+    def get_node(self, name:str)->Layer:
+        for node in self.nodes():
+            if node.get_name() == name:
+                return node
+        return None
+
     def _read_pkl(self):
         with open(self.input_pkl_path, 'rb') as file:
             self.pkl_dump:dict = pickle.load(file)
@@ -52,89 +58,60 @@ class Graph(nx.DiGraph):
         return sparsity
 
     def _get_layer_type(self, name):
-        type = None
         if 'type' in self.pkl_dump[name].keys():
-            type = self.pkl_dump[name]['type']
+            return self.pkl_dump[name]['type']
         elif 'in_features' in self.pkl_dump[name].keys():
-            type = 'linear'
+            return 'linear'
         elif 'in_channels' in self.pkl_dump[name].keys():
             assert 'kernel_size' in self.pkl_dump[name].keys()
             if len(self.pkl_dump[name]['kernel_size']) == 2:
-                type = 'conv2d'
+                return 'conv2d'
             elif len(self.pkl_dump[name]['kernel_size']) == 1:
-                type = 'conv1d'
+                return 'conv1d'
         elif 'num_heads' in self.pkl_dump[name].keys():
-            type = 'attention'
+            return 'attention'
+        elif 'dim' in self.pkl_dump[name].keys(): #for activaions there is no way to know the exact type 
+            if 'glu' in name:
+                return 'glu'
 
-        return type
+        return None
 
-    def _get_torch_layer(self, name)->torch.nn:
-        type = self._get_layer_type(name)
-
-        if type == 'linear':
-            linear_layer = nn.Linear(int(self.pkl_dump[name]['in_features']), int(self.pkl_dump[name]['out_features']))
-            x = torch.randn(1, self.pkl_dump[name]['in_features'])
-            y = linear_layer(x)
-
-        elif type == 'conv2d':
-            conv_layer = nn.Conv2d(
-                in_channels=int(self.pkl_dump[name]['in_channels']),
-                out_channels=int(self.pkl_dump[name]['out_channels']),
-                kernel_size=int(self.pkl_dump[name]['kernel_size'][0]),
-                stride=int(self.pkl_dump[name]['stride'][0]),
-                padding=int(self.pkl_dump[name]['padding'][0])
-            )
-            x = torch.randn(self.pkl_dump[name]["_parameters"]["weight"].shape)
-            y = conv_layer(x)
-
-        elif type == 'conv1d':
-            conv_layer = nn.Conv1d(
-                in_channels=int(self.pkl_dump[name]['in_channels']),
-                out_channels=int(self.pkl_dump[name]['out_channels']),
-                kernel_size=int(self.pkl_dump[name]['kernel_size'][0]),
-                stride=int(self.pkl_dump[name]['stride'][0]),
-                padding=int(self.pkl_dump[name]['padding'][0])
-            )
-            x = torch.randn(self.pkl_dump[name]["_parameters"]["weight"].shape)
-            y = conv_layer(x)
-
-        elif type == 'attention':
-            attention_layer = nn.MultiheadAttention(self.pkl_dump[name]['embed_dim'], 
-                                                self.pkl_dump[name]['num_heads'],
-                                                self.pkl_dump[name]['dropout'])
-
-            sequence_length = 3 
-            embed_dim = self.pkl_dump[name]['embed_dim']
-    
-            x = torch.randn(sequence_length, embed_dim)
-            y, attn_output_weights = attention_layer(x, x, x)
-
+    def _last_layer(self)->Layer:
+        if self.__len__():
+            return list(self.nodes())[-1]
         else:
-            print("nngraph: unknown layer type->"+name)
             return None
 
-        return y
+    def _build_layer(self, name, input_len=[3,3])->Layer:
+        input_shape = self._last_layer()
+        if input_shape is None:
+            input_shape=input_len
+        else:
+            input_shape=input_shape.get_output_shape()
+            ###########TODO:__init__
 
-    def _build_layer(self, name, input_len=3)->Layer: #TODO: add output shapes for each layer
         layer_type = self._get_layer_type(name)
         if layer_type not in self.layer_config:
             label = name + '\n'
             for k in self.pkl_dump[name].keys():
                 if not k.startswith('_'):
                     label += str(k) + ": " + str(self.pkl_dump[name][k]) + "\n"
-            return Layer(name, LayerType.UNKNOWN, label)
+            return Layer(name, LayerType.UNKNOWN, label, input_shape=input_shape)
 
         config = self.layer_config[layer_type]
         params = {param: (self.pkl_dump[name][param]) for param in config['params']}
-        
+
         if layer_type == 'conv1d':
-            return Conv1dLayer(name, **params, input_length=input_len, weight=self.pkl_dump[name]['_parameters']['weight'])
+            return Conv1dLayer(name, **params, input_length=input_len, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'conv2d':
-            return Conv2dLayer(name, **params, input_width=input_len, input_height=input_len, weight=self.pkl_dump[name]['_parameters']['weight'])
+            return Conv2dLayer(name, **params, input_width=input_len[0], input_height=input_len[1], weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'linear':
-            return LinearLayer(name, **params, weight=self.pkl_dump[name]['_parameters']['weight'])
+            return LinearLayer(name, **params, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
         elif layer_type == 'attention':
             return MHAttentionLayer(name, [input_len, 8], **params)
+        elif layer_type == 'glu':
+            print(self._last_layer().get_output_shape())
+            return GluLayer(name, input_shape, **params)
 
     def _build_graph(self, show_sublayers=True):
         prev_layer = None
@@ -173,7 +150,7 @@ class Graph(nx.DiGraph):
 
         for name in self.layer_names:
             if show_sublayers or not name.count("."):
-                layer_torch = self._get_torch_layer(name)
+                layer_torch = self.get_node(name).get_torch()
                 if layer_torch is not None:
                     layer_dot = make_dot(layer_torch, 'cluster_'+name, show_attrs=show_func_attrs)
                     layer_dot.attr(name='cluster_'+str(name), label=self._get_layer_type(name), style='filled', color='lightgray', penwidth='2')
