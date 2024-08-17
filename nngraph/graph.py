@@ -50,6 +50,7 @@ class Graph(nx.DiGraph):
         
         assert "modules" in self.pkl_dump.keys()
         self.layer_names = self.pkl_dump["modules"]
+        self.layer_names.remove("activations")
 
     def _calc_sparsity(self, weights):
         total_elements = weights.numel()
@@ -116,7 +117,7 @@ class Graph(nx.DiGraph):
     def _build_graph(self, show_sublayers=True):
         prev_layer = None
         for name in self.layer_names:
-            if not show_sublayers and name.count("."):
+            if (not show_sublayers and name.count(".")):
                 continue
 
             new_layer = self._build_layer(name)

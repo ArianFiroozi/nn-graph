@@ -15,5 +15,4 @@ args = parser.parse_args()
 args.do_lower_case = True
 
 g=Graph(args.input_pkl_path, args.output_path, args.config_file_path, args.excluded_params)
-# g.add_layer(GluLayer("myglu", [3,2]))
 g.visualize(args.visualize_operational, args.visualize_layers, args.visualize_torch_funcs)
