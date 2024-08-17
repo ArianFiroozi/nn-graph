@@ -2,7 +2,6 @@ import torch
 import matplotlib.pyplot as plt
 import networkx as nx
 from nngraph.graph import Graph
-from nngraph.visualizer import Visualizer
 
 g = Graph()
 g.visualize()
@@ -20,6 +19,3 @@ g.visualize()
 #         nx.draw(subgraph, pos=sub_pos, with_labels=True, node_color='lightgreen', edge_color='black', node_size=20, font_size=3)
 
 # plt.savefig(g.output_path+'/graph_test.png', dpi=400)
-
-viz = Visualizer()      
-viz.visualize()
