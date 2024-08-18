@@ -3,6 +3,34 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from nngraph.graph import Graph
 import numpy as np
+import onnx
+from onnx2torch import convert as cm
+
+model = onnx.load('models/model.onnx')
+
+# print(model.graph)
+# pytorch_model = cm("models/model_big.onnx")
+
+print(model.graph)
+# for name, layer in pytorch_model.named_children():
+#     print(name, layer)
+
+# from onnx.tools.net_drawer import GetPydotGraph, GetOpNodeProducer
+# import onnx
+# import os 
+
+# model = onnx.load("models/model.onnx")
+
+# ###################################
+# # We convert it into a graph.
+# pydot_graph = GetPydotGraph(
+#     model.graph,
+#     name=model.graph.name,
+#     rankdir="TB",
+#     node_producer=GetOpNodeProducer("docstring"),
+# )
+# pydot_graph.write_dot("graph2.dot")
+# os.system("dot -O -Tpng graph2.dot")
 
 # g = Graph()
 # g.visualize()
@@ -19,7 +47,4 @@ import numpy as np
 # #         sub_pos =  nx.nx_agraph.graphviz_layout(subgraph, prog='dot')  # Position for subgraph nodes
 # #         nx.draw(subgraph, pos=sub_pos, with_labels=True, node_color='lightgreen', edge_color='black', node_size=20, font_size=3)
 
-# # plt.savefig(g.output_path+'/graph_test.png', dpi=400)
-
-glu = torch.nn.GLU()
-print(glu(torch.randn(3,4,6)).shape)
+# # plt.savefig(g.output_path+'/graph_test.png', dpi=400)   

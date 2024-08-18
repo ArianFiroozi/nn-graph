@@ -3,7 +3,7 @@ import argparse
 from nngraph.layer import GluLayer
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--input_pkl_path", default='./models/model_big.pkl', type=str, help='pikle input path')
+parser.add_argument("--input_pkl_path", default='./models/model1.pkl', type=str, help='pikle input path')
 parser.add_argument('--output_path', default='./nngraph/outputs', type=str, help='output images path')
 parser.add_argument("--config_file_path", default='./nngraph/layer_config.json', type=str, help="config file path")
 parser.add_argument("--excluded_params", default=["weight", "in_proj_weight", "in_proj_bias", "bias"], type=list, help="Parameters to exclude when building graph")
