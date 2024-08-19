@@ -27,14 +27,17 @@ class Layer(nx.DiGraph):
         self.model_onnx=model_onnx
 
         self._build_operations()
-        # print(self.edges)
         for node in self.nodes():
-            print(self.name, node, self.edges)
             if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
                 self.outputs.append(node)
-
             if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
                 self.inputs.append(node)
+            if not len(self.edges) and len(self.nodes):
+                if len(node.inputs):
+                    self.inputs.append(node)
+                if len(node.outputs):
+                    self.outputs.append(node)
+
 
     def __hash__(self):
         return hash(self.name)
@@ -65,13 +68,11 @@ class Layer(nx.DiGraph):
         return self.name
 
     def parse_onnx_layer_name(self, name):
-        print(name)
         if name.count("/")==1: #special case, handled bad
             name = name[1:]
         else:
             name = '/'.join(name.split('/')[1:-1])
             name = name if name!="" else name.split('/')[-1]
-        print(name)
         return name
 
     def parse_onnx_op_name(self, name):
@@ -90,10 +91,9 @@ class Layer(nx.DiGraph):
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
             
     def _onnx_node_to_op(self, node):
-        # print(node.op_type)
-
+        # print(node.name, node.op_type)
         known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP}
+                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP}
         if node.op_type not in known_ops.keys():
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
         else:

@@ -58,7 +58,6 @@ class Graph(nx.DiGraph):
                 name = node.name.split('/')[-1]
             if name not in self.layer_names:
                 self.layer_names.append(name)
-        # print(self.layer_names)
 
     def _calc_sparsity(self, weights):
         total_elements = weights.numel()
@@ -67,23 +66,7 @@ class Graph(nx.DiGraph):
         return sparsity
 
     def _get_layer_type(self, name): # use if added type
-        if 'type' in self.pkl_dump[name].keys():
-            return self.pkl_dump[name]['type']
-        elif 'in_features' in self.pkl_dump[name].keys():
-            return 'linear'
-        elif 'in_channels' in self.pkl_dump[name].keys():
-            assert 'kernel_size' in self.pkl_dump[name].keys()
-            if len(self.pkl_dump[name]['kernel_size']) == 2:
-                return 'conv2d'
-            elif len(self.pkl_dump[name]['kernel_size']) == 1:
-                return 'conv1d'
-        elif 'num_heads' in self.pkl_dump[name].keys():
-            return 'attention'
-        elif 'dim' in self.pkl_dump[name].keys(): #for activaions there is no way to know the exact type 
-            if 'glu' in name:
-                return 'glu'
-
-        return None
+        pass
 
     def _last_layer(self)->Layer:
         if self.__len__():

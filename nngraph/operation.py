@@ -131,3 +131,11 @@ class SubOP(Operation):
         printable = self.name
         return printable
 
+class ReluOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Relu"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
