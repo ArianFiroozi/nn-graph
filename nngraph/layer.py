@@ -26,13 +26,14 @@ class Layer(nx.DiGraph):
         self.input_shape=input_shape
         self.model_onnx=model_onnx
 
-        # if build_dummy_op:
         self._build_operations()
-        print(self.edges)
+        # print(self.edges)
         for node in self.nodes():
-            if len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
+            print(self.name, node, self.edges)
+            if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
                 self.outputs.append(node)
-            if len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
+
+            if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
                 self.inputs.append(node)
 
     def __hash__(self):
@@ -64,8 +65,14 @@ class Layer(nx.DiGraph):
         return self.name
 
     def parse_onnx_layer_name(self, name):
-        name = '/'.join(name.split('/')[1:-1])
-        return name if name!="" else name.split('/')[-1]
+        print(name)
+        if name.count("/")==1: #special case, handled bad
+            name = name[1:]
+        else:
+            name = '/'.join(name.split('/')[1:-1])
+            name = name if name!="" else name.split('/')[-1]
+        print(name)
+        return name
 
     def parse_onnx_op_name(self, name):
         return name.split('/')[-1]
@@ -83,10 +90,10 @@ class Layer(nx.DiGraph):
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
             
     def _onnx_node_to_op(self, node):
-        print(node.op_type)
+        # print(node.op_type)
 
         known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP}
+                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP}
         if node.op_type not in known_ops.keys():
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
         else:

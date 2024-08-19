@@ -71,7 +71,7 @@ class MatMulOP(Operation):
 class TransposeOP(Operation):
     def __init__(self, name:str, node:onnx.NodeProto, label:str="Transpose"):
         super().__init__(name, node, OperationType.UNKNOWN, label)
-        print(node)
+        # print(node)
 
     def get_label(self):
         printable = self.name
@@ -80,7 +80,7 @@ class TransposeOP(Operation):
 class DivOP(Operation):
     def __init__(self, name:str, node:onnx.NodeProto, label:str="Div"):
         super().__init__(name, node, OperationType.UNKNOWN, label)
-        print(node)
+        # print(node)
 
     def get_label(self):
         printable = self.name
@@ -112,3 +112,22 @@ class FloorOP(Operation):
     def get_label(self):
         printable = self.name
         return printable
+
+class AddOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Add"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+        
+class SubOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Sub"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+

@@ -104,19 +104,18 @@ class Graph(nx.DiGraph):
 
     def _build_graph(self, show_sublayers=True): #TODO:add edges
         for name in self.layer_names:
-            if (not show_sublayers and name.count("/")):
-                continue
-
+            # if not show_sublayers and name.count("/"):
+            #     continue
+            
             new_layer = self._build_layer(name)
             self.add_node(new_layer)
-            
 
     def _render_operational(self):
         dot = Digraph()
         for layer in self.nodes:
             dot.subgraph(layer.get_visual())
 
-        for prev_layer in self.nodes: # clean this
+        for prev_layer in self.nodes: # clean this TODO:this should be done in graph
             for layer in self.nodes:
                 if layer == prev_layer:
                     continue
