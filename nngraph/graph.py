@@ -100,7 +100,7 @@ class Graph(nx.DiGraph):
 
     def _build_layer(self, name)->Layer:
         # input_shape = self.get_output_shape()
-        return Layer(name, model_onnx=self.model_onnx)
+        return Layer(name, model_onnx=self.model_onnx, label=name)
 
     def _build_graph(self, show_sublayers=True): #TODO:add edges
         for name in self.layer_names:
@@ -109,6 +109,7 @@ class Graph(nx.DiGraph):
 
             new_layer = self._build_layer(name)
             self.add_node(new_layer)
+            
 
     def _render_operational(self):
         dot = Digraph()

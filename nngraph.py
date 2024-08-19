@@ -1,6 +1,5 @@
 from nngraph.graph import Graph
 import argparse
-from nngraph.layer import GluLayer
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_pkl_path", default='./models/model1.pkl', type=str, help='pikle input path')
