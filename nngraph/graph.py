@@ -7,24 +7,26 @@ import networkx as nx
 from nngraph.layer import *
 import json
 from torchviz import make_dot
+import onnx
+import onnx2torch 
 
 class Graph(nx.DiGraph):
-    def __init__(self, input_pkl_path='./models/model3.pkl', output_path='./nngraph/outputs',
+    def __init__(self, input_model_path='./models/model.onnx', output_path='./nngraph/outputs',
                 config_file='./nngraph/layer_config.json', excluded_params = ["weight", "in_proj_weight", "in_proj_bias"],
                 input_shape=[3,3]):
         super().__init__()
 
-        self.input_pkl_path=input_pkl_path
-        self.pkl_dump={}
+        self.input_model_path=input_model_path
+        self.model_onnx=None
+        self.model_torch=None
         self.layer_names=[]
-        self.excluded=excluded_params
         self.output_path=output_path
         self.input_shape=input_shape
 
-        with open(config_file, 'r') as f:
+        with open(config_file, 'r') as f: # add if model has type
             self.layer_config = json.load(f)
 
-        self._read_pkl()
+        self._read_model()
         self._build_graph()
     
     def add_layer(self, layer:Layer, append_latest=False):
@@ -46,14 +48,17 @@ class Graph(nx.DiGraph):
                 return node
         return None
 
-    def _read_pkl(self):
-        with open(self.input_pkl_path, 'rb') as file:
-            self.pkl_dump:dict = pickle.load(file)
-        
-        assert "modules" in self.pkl_dump.keys()
-        self.layer_names = self.pkl_dump["modules"]
-        if "activations" in self.layer_names:
-            self.layer_names.remove("activations")
+    def _read_model(self):
+        self.model_torch=onnx2torch.convert('models/model.onnx') ## TODO:wtf
+        self.model_onnx=onnx.load('models/model.onnx')
+
+        for node in self.model_onnx.graph.node:
+            name = '/'.join(node.name.split('/')[1:-1])
+            if name == "":
+                name = node.name.split('/')[-1]
+            if name not in self.layer_names:
+                self.layer_names.append(name)
+        # print(self.layer_names)
 
     def _calc_sparsity(self, weights):
         total_elements = weights.numel()
@@ -61,7 +66,7 @@ class Graph(nx.DiGraph):
         sparsity = 1 - (non_zero_elements / total_elements)
         return sparsity
 
-    def _get_layer_type(self, name):
+    def _get_layer_type(self, name): # use if added type
         if 'type' in self.pkl_dump[name].keys():
             return self.pkl_dump[name]['type']
         elif 'in_features' in self.pkl_dump[name].keys():
@@ -94,43 +99,16 @@ class Graph(nx.DiGraph):
             return last_layer.get_output_shape()
 
     def _build_layer(self, name)->Layer:
-        input_shape = self.get_output_shape()
+        # input_shape = self.get_output_shape()
+        return Layer(name, model_onnx=self.model_onnx)
 
-        layer_type = self._get_layer_type(name)
-        if layer_type not in self.layer_config:
-            label = name + '\n'
-            for k in self.pkl_dump[name].keys():
-                if not k.startswith('_'):
-                    label += str(k) + ": " + str(self.pkl_dump[name][k]) + "\n"
-            return Layer(name, LayerType.UNKNOWN, label, input_shape=input_shape)
-
-        config = self.layer_config[layer_type]
-        params = {param: (self.pkl_dump[name][param]) for param in config['params']}
-
-        if layer_type == 'conv1d':
-            return Conv1dLayer(name, **params, input_length=input_shape, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
-        elif layer_type == 'conv2d':
-            return Conv2dLayer(name, **params, input_width=input_shape[0], input_height=input_shape[1], 
-            weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
-        elif layer_type == 'linear':
-            return LinearLayer(name, **params, weight=self.pkl_dump[name]['_parameters']['weight'], input_shape=input_shape)
-        elif layer_type == 'attention':
-            return MHAttentionLayer(name, input_shape, **params)
-        elif layer_type == 'glu':
-            return GluLayer(name, input_shape, **params)
-
-    def _build_graph(self, show_sublayers=False):
-        prev_layer = None
+    def _build_graph(self, show_sublayers=True): #TODO:add edges
         for name in self.layer_names:
-            if (not show_sublayers and name.count(".")):
+            if (not show_sublayers and name.count("/")):
                 continue
 
             new_layer = self._build_layer(name)
             self.add_node(new_layer)
-
-            if self.__len__()>1:
-                self.add_edge(prev_layer, new_layer)
-            prev_layer=new_layer
 
     def _render_operational(self):
         dot = Digraph()
@@ -179,39 +157,40 @@ class Graph(nx.DiGraph):
         
         dot.render(self.output_path + '/torch_functions_graph', format='png', cleanup=True) 
 
-    def _render_layers(self, show_sublayers=True):
-        node_attr = dict(style='filled', shape='box', align='left', fontsize='20', ranksep='0.1', height='1', width='1', fontname='monospace', label='')
-        layers_graph = Digraph(node_attr=node_attr, graph_attr=dict(size="12,12"))
-        layers_graph.attr(dpi='300')
+    def _render_layers(self, show_sublayers=True): #TODO: add if layer file added
+        pass 
+        # node_attr = dict(style='filled', shape='box', align='left', fontsize='20', ranksep='0.1', height='1', width='1', fontname='monospace', label='')
+        # layers_graph = Digraph(node_attr=node_attr, graph_attr=dict(size="12,12"))
+        # layers_graph.attr(dpi='300')
 
-        def get_layer_dict():
-            layer_dict={}
-            for name in self.layer_names:
-                layer_dict[name] = str(name) + "\n\n"
-                for key in self.pkl_dump[name].keys():
-                    if isinstance(self.pkl_dump[name][key], dict):
-                        for key2 in self.pkl_dump[name][key]:
-                            if key2 not in self.excluded:
-                                layer_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2]) + "\n"
-                            elif isinstance(self.pkl_dump[name][key][key2], torch.Tensor):
-                                layer_dict[name] += str(key2) + ": " + str(list(self.pkl_dump[name][key][key2].shape)) + "\n"
+        # def get_layer_dict():
+        #     layer_dict={}
+        #     for name in self.layer_names:
+        #         layer_dict[name] = str(name) + "\n\n"
+        #         for key in self.pkl_dump[name].keys():
+        #             if isinstance(self.pkl_dump[name][key], dict):
+        #                 for key2 in self.pkl_dump[name][key]:
+        #                     if key2 not in self.excluded:
+        #                         layer_dict[name] += str(key2) + ": " + str(self.pkl_dump[name][key][key2]) + "\n"
+        #                     elif isinstance(self.pkl_dump[name][key][key2], torch.Tensor):
+        #                         layer_dict[name] += str(key2) + ": " + str(list(self.pkl_dump[name][key][key2].shape)) + "\n"
 
-                    else:
-                        if key not in self.excluded:
-                            layer_dict[name] += str(key) + ": " + str(self.pkl_dump[name][key]) + "\n"
-            return layer_dict
+        #             else:
+        #                 if key not in self.excluded:
+        #                     layer_dict[name] += str(key) + ": " + str(self.pkl_dump[name][key]) + "\n"
+        #     return layer_dict
 
-        layer_dict=get_layer_dict()
-        previous_layer_name = None
-        for key in layer_dict.keys():
-            if not show_sublayers and key.count("."):
-                continue
-            layers_graph.node(key, layer_dict[key])
-            if previous_layer_name != None :
-                layers_graph.edge(previous_layer_name, key)
-            previous_layer_name = key
+        # layer_dict=get_layer_dict()
+        # previous_layer_name = None
+        # for key in layer_dict.keys():
+        #     if not show_sublayers and key.count("."):
+        #         continue
+        #     layers_graph.node(key, layer_dict[key])
+        #     if previous_layer_name != None :
+        #         layers_graph.edge(previous_layer_name, key)
+        #     previous_layer_name = key
 
-        layers_graph.render(self.output_path + "/layers_graph", format="png", cleanup=True)
+        # layers_graph.render(self.output_path + "/layers_graph", format="png", cleanup=True)
 
     def __len__(self):
         return len(self.nodes)

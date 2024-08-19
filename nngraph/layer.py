@@ -15,7 +15,7 @@ class LayerType(Enum):
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
-    def __init__(self, name:str, type:LayerType, label:str="Layer", build_dummy_op=True, input_shape=[None]):
+    def __init__(self, name:str, type:LayerType=LayerType.UNKNOWN, model_onnx=None, label:str="Layer", build_dummy_op=True, input_shape=[None]):
         super().__init__()
         self.name=name # unique
         self.label=label
@@ -23,9 +23,10 @@ class Layer(nx.DiGraph):
         self.inputs=[]
         self.outputs=[]
         self.input_shape=input_shape
+        self.model_onnx=model_onnx
 
-        if build_dummy_op:
-            self._build_operations()
+        # if build_dummy_op:
+        self._build_operations()
 
     def __hash__(self):
         return hash(self.name)
@@ -56,6 +57,17 @@ class Layer(nx.DiGraph):
         return self.name
 
     def _build_operations(self):
+        for node in self.model_onnx.graph.node:
+            name = '/'.join(node.name.split('/')[1:-1])
+            if name == "":
+                name = node.name.split('/')[-1]
+            if name==self.name:
+                self._onnx_node_to_op(node)
+
+    def _onnx_node_to_op(self, node):
+        print(node.op_type)
+
+    def _build_dummy_operations(self):
         self.add_node(InputOP('Input'+self.name, self.input_shape))
         self.add_input(self.get_node('Input'+self.name))
         self.add_node(Operation('OP'+self.name, label=self.name))
