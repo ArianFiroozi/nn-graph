@@ -26,6 +26,8 @@ class Operation:
         self.label=label
         self.type=type
         self.inputs=node.input
+        # if "onnx" in [str(i) for i in self.inputs]:
+        #     self.inputs.remove("onnx")
         self.outputs=node.output
     
     def __hash__(self):
@@ -51,9 +53,10 @@ class ConstOP(Operation):
         super().__init__(name, node, OperationType.CONST, label)
         self.value=torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32) # sus
         self.shape=list(self.value.shape)
+        self.inputs=[]
 
     def get_label(self):
-        printable = self.label + ":" 
+        printable = self.name + ":" 
         printable += "\nX" + str(self.shape)
         return printable
 
@@ -62,7 +65,7 @@ class MatMulOP(Operation):
         super().__init__(name, node, OperationType.UNKNOWN, label)
 
     def get_label(self):
-        printable = self.label
+        printable = self.name
         return printable
 
 class TransposeOP(Operation):
@@ -71,5 +74,41 @@ class TransposeOP(Operation):
         print(node)
 
     def get_label(self):
-        printable = self.label
+        printable = self.name
+        return printable
+
+class DivOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Div"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class ClipOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Clip"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class MulOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Mul"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class FloorOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Floor"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
         return printable

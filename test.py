@@ -26,10 +26,9 @@ model = onnx.load("models/model.onnx")
 #     print(i[1])
 # for n in model.ListFields()[3][1].node:
 #     print(n)
-for i in model.graph.node:
-    print(i)
 # print(onnx.helper.printable_graph(model.graph))
-
+for i in model.graph.input:
+    print(i)
 
 
 

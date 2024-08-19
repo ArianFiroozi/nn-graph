@@ -116,16 +116,17 @@ class Graph(nx.DiGraph):
         for layer in self.nodes:
             dot.subgraph(layer.get_visual())
 
-        prev_layer = None
-        for layer in self.nodes:
-            if prev_layer==None:
-                prev_layer=layer
-                continue
-
-            for output in prev_layer.outputs: # fix for multiple outputs
-                for input in layer.inputs:
-                    dot.edge(output.get_name(), input.get_name())
-            prev_layer=layer
+        for prev_layer in self.nodes: # clean this
+            for layer in self.nodes:
+                if layer == prev_layer:
+                    continue
+                for output in prev_layer.outputs:
+                    for input in layer.inputs:
+                        for o in output.outputs:
+                            for i in input.inputs:
+                                if i == o:
+                                    dot.edge(output.get_name(), input.get_name())
+                                    break
 
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 
 

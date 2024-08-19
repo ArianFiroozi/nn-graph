@@ -5,6 +5,7 @@ import torch.nn as nn
 from enum import Enum
 import networkx as nx
 from nngraph.operation import *
+import numpy as np
 
 class LayerType(Enum):
     CONV1D=1
@@ -27,6 +28,12 @@ class Layer(nx.DiGraph):
 
         # if build_dummy_op:
         self._build_operations()
+        print(self.edges)
+        for node in self.nodes():
+            if len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
+                self.outputs.append(node)
+            if len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
+                self.inputs.append(node)
 
     def __hash__(self):
         return hash(self.name)
@@ -78,7 +85,8 @@ class Layer(nx.DiGraph):
     def _onnx_node_to_op(self, node):
         print(node.op_type)
 
-        known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP}
+        known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
+                    "Mul":MulOP, "Floor":FloorOP}
         if node.op_type not in known_ops.keys():
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
         else:
@@ -114,8 +122,8 @@ class Layer(nx.DiGraph):
 
             dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
-            # for input_name in node.inputs:
-            #     dot.edge(input_name, node.get_name())
+            for input_name in node.inputs:
+                dot.edge(input_name, node.get_name())
 
         for edge in self.edges():
             dot.edge(edge[0].get_name(), edge[1].get_name())
