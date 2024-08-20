@@ -50,8 +50,8 @@ class Graph(nx.DiGraph):
         return None
 
     def _read_model(self):
-        self.model_torch=onnx2torch.convert('models/modelconv2d.onnx') ## TODO:wtf
-        self.model_onnx=onnx.load('models/modelconv2d.onnx')
+        self.model_torch=onnx2torch.convert('models/model.onnx') ## TODO:wtf
+        self.model_onnx=onnx.load('models/model.onnx')
         
         for node in self.model_onnx.graph.node:
             name = '/'.join(node.name.split('/')[1:-1])
