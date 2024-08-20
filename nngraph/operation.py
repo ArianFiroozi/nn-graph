@@ -25,10 +25,13 @@ class Operation:
         self.name=name # unique
         self.label=label
         self.type=type
-        self.inputs=node.input
-        # if "onnx" in [str(i) for i in self.inputs]:
-        #     self.inputs.remove("onnx")
-        self.outputs=node.output
+
+        if node is not None:
+            self.inputs=node.input
+            self.outputs=node.output
+        else:
+            self.inputs=[]
+            self.outputs=[]
     
     def __hash__(self):
         return hash(self.name)
@@ -138,4 +141,23 @@ class ReluOP(Operation):
 
     def get_label(self):
         printable = self.name
+        return printable
+
+class ReshapeOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Reshape"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class TensorOP(Operation): # not op
+    def __init__(self, name:str, tensor:torch.Tensor, label:str="Tensor"):
+        super().__init__(name, None, OperationType.UNKNOWN, label)
+        self.tensor=tensor
+
+    def get_label(self):
+        printable = self.name
+        printable += "\n" + str(self.tensor.shape)
         return printable

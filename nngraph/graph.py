@@ -52,7 +52,7 @@ class Graph(nx.DiGraph):
     def _read_model(self):
         self.model_torch=onnx2torch.convert('models/model.onnx') ## TODO:wtf
         self.model_onnx=onnx.load('models/model.onnx')
-
+        
         for node in self.model_onnx.graph.node:
             name = '/'.join(node.name.split('/')[1:-1])
             if name == "":
@@ -116,7 +116,7 @@ class Graph(nx.DiGraph):
         for layer in self.nodes:
             dot.subgraph(layer.get_visual())
 
-        for prev_layer in self.nodes: # clean this TODO:this should be done in graph
+        for prev_layer in self.nodes: # this is a bad view, layers are connected not the ops
             for layer in self.nodes:
                 if layer == prev_layer:
                     continue
@@ -128,7 +128,6 @@ class Graph(nx.DiGraph):
                                     dot.edge(output.get_name(), input.get_name())
                                     break
         for edge in self.edges:
-            print(edge)
             dot.edge(edge[1].name,edge[0].name)
 
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 

@@ -91,13 +91,29 @@ class Layer(nx.DiGraph):
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
             
     def _onnx_node_to_op(self, node):
-        # print(node.name, node.op_type)
         known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP}
+                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP}
+
         if node.op_type not in known_ops.keys():
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
         else:
             self.add_node(known_ops[node.op_type](node.name, node))
+
+        weights_dict = {}
+        for initializer in self.model_onnx.graph.initializer:
+            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
+            weights_dict[initializer.name] = tensor
+
+        all_inputs=[]
+        for node in self.nodes:
+            all_inputs += node.inputs
+
+        for name, tensor in weights_dict.items():
+            if name not in all_inputs:
+                continue
+            tensor = TensorOP(name.replace("::", "/"), tensor)
+            tensor.outputs=[tensor.name]
+            self.add_node(tensor)
 
     def get_output_shape(self):
         output = self.outputs[0] ##only one
@@ -120,7 +136,7 @@ class Layer(nx.DiGraph):
             shape = 'box'
             style = 'filled'
 
-            if isinstance(node, ConstOP):
+            if isinstance(node, ConstOP) or isinstance(node, TensorOP):
                 color = 'lightblue'
             # elif isinstance(node, OutputOP):
             #     color = 'lightgreen'
@@ -136,7 +152,6 @@ class Layer(nx.DiGraph):
                     known_inputs+=pred.outputs
                 if input_name not in known_inputs:
                     dot.edge(input_name, node.get_name())
-                    print(input_name)
 
         for edge in self.edges():
             dot.edge(edge[0].get_name(), edge[1].get_name())
