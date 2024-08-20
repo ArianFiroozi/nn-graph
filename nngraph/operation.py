@@ -159,5 +159,105 @@ class TensorOP(Operation): # not op
 
     def get_label(self):
         printable = self.name
-        printable += "\n" + str(self.tensor.shape)
+        printable += "\nT" + str(list(self.tensor.shape))
+        return printable
+
+class ConvOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Conv"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node.attrib ute[2].name)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class MaxPoolOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="MaxPool"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class ModOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Mod"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class ShapeOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Shape"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+
+class SliceOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Slice"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class ConcatOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Concat"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class SqueezeOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Squeeze"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class UnsqueezeOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Unsqueeze"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class SoftMaxOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="SoftMax"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class GatherOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Gather"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
+        return printable
+
+class GemmOP(Operation):
+    def __init__(self, name:str, node:onnx.NodeProto, label:str="Gemm"):
+        super().__init__(name, node, OperationType.UNKNOWN, label)
+        # print(node)
+
+    def get_label(self):
+        printable = self.name
         return printable

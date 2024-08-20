@@ -12,7 +12,7 @@ import onnx2torch
 import pathlib
 
 class Graph(nx.DiGraph):
-    def __init__(self, input_model_path='./models/model.onnx', output_path='./nngraph/outputs',
+    def __init__(self, input_model_path='/models/model.onnx', output_path='./nngraph/outputs',
                 config_file='./nngraph/layer_config.json', excluded_params = ["weight", "in_proj_weight", "in_proj_bias"],
                 input_shape=[3,3]):
         super().__init__()
@@ -50,8 +50,8 @@ class Graph(nx.DiGraph):
         return None
 
     def _read_model(self):
-        self.model_torch=onnx2torch.convert('models/model.onnx') ## TODO:wtf
-        self.model_onnx=onnx.load('models/model.onnx')
+        self.model_torch=onnx2torch.convert('models/modelconv2d.onnx') ## TODO:wtf
+        self.model_onnx=onnx.load('models/modelconv2d.onnx')
         
         for node in self.model_onnx.graph.node:
             name = '/'.join(node.name.split('/')[1:-1])

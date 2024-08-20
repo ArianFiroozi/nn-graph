@@ -92,10 +92,13 @@ class Layer(nx.DiGraph):
             
     def _onnx_node_to_op(self, node):
         known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP}
+                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
+                    "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
+                    "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
 
         if node.op_type not in known_ops.keys():
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
+            print("unknown operation!")
         else:
             self.add_node(known_ops[node.op_type](node.name, node))
 
