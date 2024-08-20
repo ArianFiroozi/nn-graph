@@ -16,28 +16,17 @@ class LayerType(Enum):
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
-    def __init__(self, name:str, type:LayerType=LayerType.UNKNOWN, model_onnx=None, label:str="Layer", build_dummy_op=True, input_shape=[None]):
+    def __init__(self, name:str, type:LayerType=LayerType.UNKNOWN, model_onnx=None, label:str="Layer"):
         super().__init__()
         self.name=name # unique
         self.label=label
         self.type=type
         self.inputs=[]
         self.outputs=[]
-        self.input_shape=input_shape
         self.model_onnx=model_onnx
 
         self._build_operations()
-        for node in self.nodes():
-            if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
-                self.outputs.append(node)
-            if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
-                self.inputs.append(node)
-            if not len(self.edges) and len(self.nodes):
-                if len(node.inputs):
-                    self.inputs.append(node)
-                if len(node.outputs):
-                    self.outputs.append(node)
-
+        self._set_layer_inout()
 
     def __hash__(self):
         return hash(self.name)
@@ -47,6 +36,19 @@ class Layer(nx.DiGraph):
 
     def __repr__(self):
         return self.label
+    
+    def _set_layer_inout(self):
+            for node in self.nodes():
+                if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
+                    self.outputs.append(node)
+                if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
+                    self.inputs.append(node)
+                if not len(self.edges) and len(self.nodes):
+                    if len(node.inputs):
+                        self.inputs.append(node)
+                    if len(node.outputs):
+                        self.outputs.append(node)
+            return node
 
     def get_torch(self):
         print("layer: unknown layer type->"+self.name)
@@ -141,11 +143,7 @@ class Layer(nx.DiGraph):
 
             if isinstance(node, ConstOP) or isinstance(node, TensorOP):
                 color = 'lightblue'
-            # elif isinstance(node, OutputOP):
-            #     color = 'lightgreen'
-            # if isinstance(node, PaddOP) or isinstance(node, DilationOP):
-            #     shape = 'ellipse'
-
+                
             dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
             for input_name in node.inputs:
