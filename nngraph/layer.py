@@ -1,6 +1,5 @@
 import torch
 from graphviz import Digraph
-import pickle
 import torch.nn as nn
 from enum import Enum
 import networkx as nx
@@ -143,7 +142,7 @@ class Layer(nx.DiGraph):
 
             if isinstance(node, ConstOP) or isinstance(node, TensorOP):
                 color = 'lightblue'
-                
+
             dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
             for input_name in node.inputs:

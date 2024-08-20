@@ -1,6 +1,5 @@
 import torch
 from graphviz import Digraph
-import pickle
 import torch.nn as nn
 from enum import Enum
 import networkx as nx
@@ -9,7 +8,6 @@ import json
 from torchviz import make_dot
 import onnx
 import onnx2torch 
-import pathlib
 
 class Graph(nx.DiGraph):
     def __init__(self, input_model_path='./models/modelconv2d.onnx', output_path='./nngraph/outputs',
@@ -47,7 +45,7 @@ class Graph(nx.DiGraph):
         return None
 
     def _read_model(self):
-        self.model_onnx=onnx.load(self.input_model_path) ## TODO:wtf
+        self.model_onnx=onnx.load(self.input_model_path)
         
         for node in self.model_onnx.graph.node:
             name = '/'.join(node.name.split('/')[1:-1])
@@ -103,7 +101,7 @@ class Graph(nx.DiGraph):
                                 if i == o:
                                     dot.edge(output.get_name(), input.get_name())
                                     break
-                                
+
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 
 
     def _render_layers(self, show_sublayers=True): #TODO: complete if layer file added
