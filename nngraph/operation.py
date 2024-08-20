@@ -134,7 +134,7 @@ class SubOP(Operation):
 class ReluOP(Operation):
     def __init__(self, name:str, node:onnx.NodeProto, label:str="Relu"):
         super().__init__(name, node, OperationType.UNKNOWN, label)
-        print(node)
+        # print(node)
 
     def get_label(self):
         printable = self.name

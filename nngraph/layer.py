@@ -87,7 +87,7 @@ class Layer(nx.DiGraph):
         for first in self.nodes():
             for second in self.nodes():
                 for output in first.outputs:
-                    if output in second.inputs:
+                    if output in second.inputs: 
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
             
     def _onnx_node_to_op(self, node):
@@ -130,7 +130,13 @@ class Layer(nx.DiGraph):
             dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
             for input_name in node.inputs:
-                dot.edge(input_name, node.get_name())
+                input_name=str(input_name).replace("::","/")
+                known_inputs = []
+                for pred in self.predecessors(node):
+                    known_inputs+=pred.outputs
+                if input_name not in known_inputs:
+                    dot.edge(input_name, node.get_name())
+                    print(input_name)
 
         for edge in self.edges():
             dot.edge(edge[0].get_name(), edge[1].get_name())

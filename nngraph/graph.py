@@ -9,6 +9,7 @@ import json
 from torchviz import make_dot
 import onnx
 import onnx2torch 
+import pathlib
 
 class Graph(nx.DiGraph):
     def __init__(self, input_model_path='./models/model.onnx', output_path='./nngraph/outputs',
@@ -85,13 +86,30 @@ class Graph(nx.DiGraph):
         # input_shape = self.get_output_shape()
         return Layer(name, model_onnx=self.model_onnx, label=name)
 
-    def _build_graph(self, show_sublayers=True): #TODO:add edges
-        for name in self.layer_names:
-            # if not show_sublayers and name.count("/"):
-            #     continue
-            
+    def __add_edges_between_layers(self):
+        all_nodes={}
+        for layer in self.nodes():
+            for node in layer.nodes:
+                all_nodes[node] =layer
+        
+        for node in all_nodes.keys():
+            known_inputs = []
+            for pred in all_nodes[node].predecessors(node):
+                known_inputs+=pred.outputs
+        
+            for input_name in node.inputs: 
+                if input_name not in known_inputs:
+                    for other in all_nodes:
+                        if input_name in other.outputs:
+                            self.add_edge(all_nodes[node], all_nodes[other])
+                            break
+
+    def _build_graph(self, show_sublayers=True):
+        for name in self.layer_names:           
             new_layer = self._build_layer(name)
             self.add_node(new_layer)
+
+        self.__add_edges_between_layers()
 
     def _render_operational(self):
         dot = Digraph()
@@ -109,6 +127,9 @@ class Graph(nx.DiGraph):
                                 if i == o:
                                     dot.edge(output.get_name(), input.get_name())
                                     break
+        for edge in self.edges:
+            print(edge)
+            dot.edge(edge[1].name,edge[0].name)
 
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 
 
