@@ -69,12 +69,11 @@ class Operation:
 class ConstOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, label: str = "Const"):
         super().__init__(name, node, OperationType.CONST, label)
-        self.value = torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32)
-        self.shape = list(self.value.shape)
+        self.tensor = torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32)
         self.inputs = []
 
     def get_label(self):
-        return f"{self.label}:\nX{self.shape}"
+        return f"{self.label}:\nX{list(self.tensor.shape)}"
 
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, label: str = "MatMul"):
@@ -242,6 +241,17 @@ class GatherOP(Operation):
         return f"{self.label}\naxis: {self.axis}"
 
 class GemmOP(Operation):
+    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Gemm"):
+        super().__init__(name, node, OperationType.GEMM, label)
+        self.alpha = [attr.i for attr in node.attribute if attr.name == "alpha"][0]
+        self.beta = [attr.i for attr in node.attribute if attr.name == "beta"][0]
+        self.transB = [attr.i for attr in node.attribute if attr.name == "transB"][0]
+
+    def get_label(self):
+        return f"{self.label}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
+
+############### custom operations ####################
+class MacOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, label: str = "Gemm"):
         super().__init__(name, node, OperationType.GEMM, label)
         self.alpha = [attr.i for attr in node.attribute if attr.name == "alpha"][0]
