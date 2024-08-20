@@ -91,6 +91,113 @@ class Layer(nx.DiGraph):
                     if output in second.inputs: 
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
             
+    def __build_conv(self, known_ops, node, conv):
+        # blue
+        self.add_node(Operation("Weight" + node.name, None, label="Weight"))
+        self.get_node("Weight" + node.name).inputs.append(conv.inputs[1])
+        self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
+        self.add_edge(self.get_node("Weight" + node.name), self.get_node("Kernel" + node.name))
+        
+        self.add_node(Operation("Input" + node.name, None, label="Input"))
+        self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
+        
+        
+        # grey
+        self.add_node(Operation("Padding" + node.name, None, label="Padding"))
+        self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
+        self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
+        self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
+        
+        # green
+        self.add_node(Operation("Output" + node.name, None, label="Output"))
+        self.get_node("Output" + node.name).outputs = conv.outputs
+        self.outputs.append(self.get_node("Output" + node.name))
+        
+        weights_dict = {} #duplicated
+        for initializer in self.model_onnx.graph.initializer:
+            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
+            weights_dict[initializer.name] = tensor
+        
+        all_inputs=[]
+        weights=[0,0,0]
+        for node2 in self.nodes:
+            all_inputs += node2.inputs
+        
+        for name, tensor in weights_dict.items():
+            if name != conv.inputs[1]:
+                continue
+            weights = TensorOP(name.replace("::", "/"), tensor)
+        print(weights.tensor.shape)
+        
+        # macs
+        for i in range(weights.tensor.shape[0]):
+            self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
+            for j in range(weights.tensor.shape[1]):
+                mac=None
+                mac_node_name="MAC" + node.name + str(i) + str(j)
+                if len(conv.kernel_shape)==1:
+                    mac=MacOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
+                elif len(conv.kernel_shape)==2:
+                    mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
+                else:
+                    print("invalid Convolution dims!")
+        
+                self.add_node(mac) 
+                self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
+        
+        
+        
+        for i in range(weights.tensor.shape[0]):
+            self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
+    def __build_linear(self, known_ops, node, matmul):
+        # blue
+        self.add_node(Operation("Weight" + node.name, None, label="Weight"))
+        self.get_node("Weight" + node.name).inputs.append(matmul.inputs[1])
+        
+        self.add_node(Operation("Input" + node.name, None, label="Input"))
+        self.get_node("Input" + node.name).inputs.append(matmul.inputs[0])
+        
+        # green
+        self.add_node(Operation("Output" + node.name, None, label="Output"))
+        self.get_node("Output" + node.name).outputs = matmul.outputs
+        self.outputs.append(self.get_node("Output" + node.name))
+        
+        weights_dict = {} #duplicated
+        for initializer in self.model_onnx.graph.initializer:
+            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
+            weights_dict[initializer.name] = tensor
+        
+        all_inputs=[]
+        weights=[0,0,0]
+        for node2 in self.nodes:
+            all_inputs += node2.inputs
+        
+        for name, tensor in weights_dict.items():
+            if name != matmul.inputs[1]:
+                continue
+            weights = TensorOP(name.replace("::", "/"), tensor)
+        print(weights.tensor.shape)
+        
+        # macs
+        for i in range(weights.tensor.shape[1]):
+            self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
+            for j in range(weights.tensor.shape[0]):
+                mac=None
+                mac_node_name="MAC" + node.name + str(i) + str(j)
+                mac=MacOP(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
+                self.add_node(mac) 
+                self.add_edge(self.get_node('Input' + node.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Weight' + node.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
+        
+        
+        
+        for i in range(weights.tensor.shape[1]):
+            self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
     def _onnx_node_to_op(self, node):
         known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
                     "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
@@ -101,63 +208,11 @@ class Layer(nx.DiGraph):
             print("unknown operation!")
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
         elif node.op_type=="Conv":
-
-            conv = known_ops[node.op_type](node.name, node)            
-            # blue
-            self.add_node(Operation("Weight" + node.name, None, label="Weight"))
-            self.get_node("Weight" + node.name).inputs.append(conv.inputs[1])
-            self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
-            self.add_edge(self.get_node("Weight" + node.name), self.get_node("Kernel" + node.name))
-
-            self.add_node(Operation("Input" + node.name, None, label="Input"))
-            self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
-            
-
-            # grey
-            self.add_node(Operation("Padding" + node.name, None, label="Padding"))
-            self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
-            self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
-            self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
-
-            # green
-            self.add_node(Operation("Output" + node.name, None, label="Output"))
-            self.get_node("Output" + node.name).outputs = conv.outputs
-            self.outputs.append(self.get_node("Output" + node.name))
-
-            weights_dict = {} #duplicated
-            for initializer in self.model_onnx.graph.initializer:
-                tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
-                weights_dict[initializer.name] = tensor
-
-            all_inputs=[]
-            weights=[0,0,0]
-            for node2 in self.nodes:
-                all_inputs += node2.inputs
-
-            for name, tensor in weights_dict.items():
-                if name != conv.inputs[1]:
-                    continue
-                weights = TensorOP(name.replace("::", "/"), tensor)
-            print(weights.tensor.shape)
-
-            # macs
-            for i in range(weights.tensor.shape[0]):
-                self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
-                for j in range(weights.tensor.shape[1]): ##wrong
-                    mac_node_name = "MAC" + node.name + str(i) + str(j)
-
-                    self.add_node(Operation(mac_node_name, None, label="MAC" + str(i) + "," + str(j))) 
-                    self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
-                    self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
-                    self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
-
-
-            
-            for i in range(weights.tensor.shape[0]):
-                self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
-
-#############################################
-
+            conv = known_ops[node.op_type](node.name, node)  
+            self.__build_conv(known_ops, node, conv)
+        elif node.op_type=="MatMul":
+            matmul = known_ops[node.op_type](node.name, node) 
+            self.__build_linear(known_ops, node, matmul)
         else:
             self.add_node(known_ops[node.op_type](node.name, node))
         

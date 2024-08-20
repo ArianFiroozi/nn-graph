@@ -252,11 +252,27 @@ class GemmOP(Operation):
 
 ############### custom operations ####################
 class MacOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Gemm"):
-        super().__init__(name, node, OperationType.GEMM, label)
-        self.alpha = [attr.i for attr in node.attribute if attr.name == "alpha"][0]
-        self.beta = [attr.i for attr in node.attribute if attr.name == "beta"][0]
-        self.transB = [attr.i for attr in node.attribute if attr.name == "transB"][0]
+    def __init__(self, name, conv:ConvOP, label: str = "MacOP"):
+        super().__init__(name, None, OperationType.UNKNOWN, label)
+
+        if conv is not None: ## matmul mac is probably differenet from conv mac
+            self.kernel_shape = conv.kernel_shape
+            self.strides = conv.strides
+            self.padding = conv.padding
+            self.group = conv.group
+            self.dilations = conv.dilations
 
     def get_label(self):
-        return f"{self.label}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
+        return f"{self.label}"
+
+class Mac2dOP(Operation):
+    def __init__(self, name, conv:ConvOP, label: str = "Mac2dOP"):
+        super().__init__(name, None, OperationType.UNKNOWN, label)
+        self.kernel_shape = conv.kernel_shape
+        self.strides = conv.strides
+        self.padding = conv.padding
+        self.group = conv.group
+        self.dilations = conv.dilations
+
+    def get_label(self):
+        return f"{self.label}"
