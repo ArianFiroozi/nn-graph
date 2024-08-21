@@ -24,6 +24,8 @@ class Layer(nx.DiGraph):
         self.inputs=[]
         self.outputs=[]
         self.model_onnx=model_onnx
+        self.torch_model = convert(self.model_onnx)
+        self.dummy_input = torch.randn(28, 28)
 
         self._build_operations()
         self._set_layer_inout()
@@ -86,27 +88,26 @@ class Layer(nx.DiGraph):
                     "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
                     "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
         
-        input_shape, output_shape = self._get_in_out_shape(node, known_ops)
+        input_shape, output_shape = self._get_in_out_shape(node)
 
         if node.op_type not in known_ops.keys():
             print("unknown operation!")
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
-
-        elif self.nodes.__len__()>2: ##custom inside layer is complicated
-            self.add_node(known_ops[node.op_type](node.name, node))
+        elif self.nodes.__len__()>2: ##custom layer inside another layer is slow
+            self.add_node(known_ops[node.op_type](node.name, node, input_shape, output_shape))
 
         elif node.op_type=="Conv":
-            conv = known_ops[node.op_type](node.name, node)  
+            conv = known_ops[node.op_type](node.name, node, input_shape, output_shape)  
             self.__build_conv(known_ops, node, conv)
         elif node.op_type=="MaxPool":
-            conv = known_ops[node.op_type](node.name, node)  
+            conv = known_ops[node.op_type](node.name, node, input_shape, output_shape)  
             self.__build_maxpool(known_ops, node, conv)
         elif node.op_type=="MatMul":
-            matmul = known_ops[node.op_type](node.name, node) 
+            matmul = known_ops[node.op_type](node.name, node, input_shape, output_shape) 
             self.__build_linear(known_ops, node, matmul)
 
         else:
-            self.add_node(known_ops[node.op_type](node.name, node))
+            self.add_node(known_ops[node.op_type](node.name, node, input_shape, output_shape))
         
         self._add_tensors()
     
@@ -131,7 +132,7 @@ class Layer(nx.DiGraph):
             if len(input):
                 input_shape.append(input[0].shape)
             else:
-                input_shape.append(-1)
+                input_shape.append(None)
 
         layer = dict(model.named_modules())[layer_name]
         layer.register_forward_hook(hook)
@@ -152,17 +153,19 @@ class Layer(nx.DiGraph):
                 for output in first.outputs:
                     if output in second.inputs: 
                         self.add_edge(self.get_node(first.get_name()), self.get_node(second.get_name()))
-            
+
     def __build_conv(self, known_ops, node, conv):
+        weights = self.get_input_tensor(conv)
+
         # blue
-        self.add_node(Operation("Weight" + node.name, None, label="Weight"))
+        self.add_node(Operation("Weight" + node.name, None, list(weights.tensor.shape), list(weights.tensor.shape), label="Weight"))
         self.get_node("Weight" + node.name).inputs.append(conv.inputs[1])
-        self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
+        self.add_node(Operation("Kernel" + node.name, None, list(weights.tensor.shape), [weights.tensor.shape[0]*weights.tensor.shape[1], 1], label="Kernel")) ##wrong
         self.add_edge(self.get_node("Weight" + node.name), self.get_node("Kernel" + node.name))
         
-        self.add_node(Operation("Input" + node.name, None, label="Input"))
+        input_shape, output_shape=self._get_in_out_shape(conv)
+        self.add_node(Operation("Input" + node.name, None, input_shape, input_shape, label="Input"))
         self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
-        
         
         # grey
         self.add_node(Operation("Padding" + node.name, None, label="Padding"))
@@ -171,30 +174,15 @@ class Layer(nx.DiGraph):
         self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
         
         # green
-        self.add_node(Operation("Output" + node.name, None, label="Output"))
+        self.add_node(Operation("Output" + node.name, None, None, output_shape, label="Output"))
         self.get_node("Output" + node.name).outputs = conv.outputs
         self.outputs.append(self.get_node("Output" + node.name))
         
-        weights_dict = {} #duplicated
-        for initializer in self.model_onnx.graph.initializer:
-            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
-            weights_dict[initializer.name] = tensor
-        
-        all_inputs=[]
-        weights=[0,0,0]
-        for node2 in self.nodes:
-            all_inputs += node2.inputs
-        
-        for name, tensor in weights_dict.items():
-            if name != conv.inputs[1]:
-                continue
-            weights = TensorOP(name.replace("::", "/"), tensor)
-        print(weights.tensor.shape)
         
         # macs
-        for i in range(weights.tensor.shape[0]):
-            self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
-            for j in range(weights.tensor.shape[1]):
+        for i in range(conv.output_shape[1]):
+            self.add_node(Operation('Output_c' + str(i) + node.name, None, label="Output Channel" + str(i)))
+            for j in range(conv.input_shape[1]):
                 mac=None
                 mac_node_name="MAC" + node.name + str(i) + str(j)
                 if len(conv.kernel_shape)==1:
@@ -211,7 +199,7 @@ class Layer(nx.DiGraph):
         
         
         
-        for i in range(weights.tensor.shape[0]):
+        for i in range(conv.output_shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
 
     def __build_maxpool(self, known_ops, node, conv):
@@ -232,7 +220,7 @@ class Layer(nx.DiGraph):
         self.outputs.append(self.get_node("Output" + node.name))
         
         # macs
-        for i in range(2):
+        for i in range(conv.output_shape[1]):
             self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
             mac=None
             mac_node_name="MAC" + node.name + str(i)
@@ -250,7 +238,7 @@ class Layer(nx.DiGraph):
         
         
         
-        for i in range(2):
+        for i in range(conv.input_shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
 
     def __build_linear(self, known_ops, node, matmul):
@@ -265,26 +253,11 @@ class Layer(nx.DiGraph):
         self.add_node(Operation("Output" + node.name, None, label="Output"))
         self.get_node("Output" + node.name).outputs = matmul.outputs
         self.outputs.append(self.get_node("Output" + node.name))
-        
-        weights_dict = {} #duplicated
-        for initializer in self.model_onnx.graph.initializer:
-            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
-            weights_dict[initializer.name] = tensor
-        
-        all_inputs=[]
-        weights=None
-        for node2 in self.nodes:
-            all_inputs += node2.inputs
-        
-        for name, tensor in weights_dict.items():
-            if name != matmul.inputs[1]:
-                continue
-            weights = TensorOP(name.replace("::", "/"), tensor)
-        
+
         # macs
-        for i in range(weights.tensor.shape[1]):
+        for i in range(matmul.output_shape[1]):
             self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
-            for j in range(weights.tensor.shape[0]):
+            for j in range(matmul.input_shape[1]):
                 mac=None
                 mac_node_name="MAC" + node.name + str(i) + str(j)
                 mac=MacOP(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
@@ -292,11 +265,26 @@ class Layer(nx.DiGraph):
                 self.add_edge(self.get_node('Input' + node.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node('Weight' + node.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
-        
-        
-        
-        for i in range(weights.tensor.shape[1]):
+     
+        for i in range(min(matmul.output_shape[1],10)):
             self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
+    def get_input_tensor(self, op):
+        weights_dict = {}
+        for initializer in self.model_onnx.graph.initializer:
+            tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
+            weights_dict[initializer.name] = tensor
+        
+        all_inputs=[]
+        weights=None
+        for node in self.nodes:
+            all_inputs += node.inputs
+        
+        for name, tensor in weights_dict.items():
+            if name != op.inputs[1]:
+                continue
+            weights = TensorOP(name.replace("::", "/"), tensor)
+        return weights
 
     def _add_tensors(self):
         weights_dict = {}
@@ -317,13 +305,14 @@ class Layer(nx.DiGraph):
 
     def _get_in_out_shape(self, node, known_ops):
         if node.op_type in known_ops.keys():
-            torch_model = convert(self.model_onnx)
-            dummy_input = torch.randn(28,28)
-            output_shape = self.get_operation_output_shape(torch_model, node.name[1:], dummy_input)
-            input_shape = self.get_operation_input_shape(torch_model, node.name[1:], dummy_input)
-            
-            return input_shape, output_shape
-        return -1, -1
+            return self._get_in_out_shape(known_ops[node.op_type])
+        return None, None
+
+    def _get_in_out_shape(self, op):
+        output_shape = self.get_operation_output_shape(self.torch_model, op.name[1:], self.dummy_input)
+        input_shape = self.get_operation_input_shape(self.torch_model, op.name[1:], self.dummy_input)
+        
+        return input_shape, output_shape
 
     def get_output_shape(self):
         output = self.outputs[0] ##only one

@@ -37,7 +37,7 @@ class OperationType(Enum):
     GEMM = "General Matrix Multiply"
 
 class Operation:
-    def __init__(self, name: str, node: onnx.NodeProto, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape=None, output_shape=None, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
         self.name = name
         self.label = label
         self.type = type
@@ -47,6 +47,8 @@ class Operation:
         else:
             self.inputs = []
             self.outputs = []
+        self.input_shape = None if input_shape is None else list(input_shape)
+        self.output_shape = None if output_shape is None else list(output_shape)
 
     def __hash__(self):
         return hash(self.name)
@@ -58,7 +60,7 @@ class Operation:
         return self.label
 
     def get_label(self):
-        return self.label
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
 
     def add_input_name(self, name: str):
         self.inputs.append(name)
@@ -67,98 +69,74 @@ class Operation:
         return self.name
 
 class ConstOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Const"):
-        super().__init__(name, node, OperationType.CONST, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Const"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.CONST, label)
         self.tensor = torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32)
 
     def get_label(self):
-        return f"{self.label}:\nX{list(self.tensor.shape)}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nTensor shape: {list(self.tensor.shape)}"
 
 class MatMulOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "MatMul"):
-        super().__init__(name, node, OperationType.MATMUL, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.MATMUL, label)
 
 class TransposeOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Transpose"):
-        super().__init__(name, node, OperationType.TRANSPOSE, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Transpose"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.TRANSPOSE, label)
         self.perm = [attr.ints for attr in node.attribute if attr.name == "perm"][0]
 
     def get_label(self):
-        return f"{self.label}\nPerm: {self.perm}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nPerm: {self.perm}"
 
 class DivOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Div"):
-        super().__init__(name, node, OperationType.DIV, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Div"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.DIV, label)
 
 class ClipOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Clip"):
-        super().__init__(name, node, OperationType.CLIP, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Clip"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.CLIP, label)
 
 class MulOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Mul"):
-        super().__init__(name, node, OperationType.MULT, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mul"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.MULT, label)
 
 class FloorOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Floor"):
-        super().__init__(name, node, OperationType.FLOOR, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Floor"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.FLOOR, label)
 
 class AddOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Add"):
-        super().__init__(name, node, OperationType.ADD, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Add"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.ADD, label)
 
 class SubOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Sub"):
-        super().__init__(name, node, OperationType.SUB, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Sub"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.SUB, label)
 
 class ReluOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Relu"):
-        super().__init__(name, node, OperationType.RELU, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Relu"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.RELU, label)
 
 class ReshapeOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Reshape"):
-        super().__init__(name, node, OperationType.RESHAPE, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Reshape"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.RESHAPE, label)
         self.allowzero = None
         if len(node.attribute):
             self.allowzero = [attr.i for attr in node.attribute if attr.name == "allowzero"]
 
     def get_label(self):
-        return f"{self.label}\nallowzero: {self.allowzero}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nallowzero: {self.allowzero}"
 
 class TensorOP(Operation):
     def __init__(self, name: str, tensor: torch.Tensor, label: str = "Tensor"):
-        super().__init__(name, None, OperationType.TENSOR, label)
+        super().__init__(name, None, type=OperationType.TENSOR, label=label)
         self.tensor = tensor
 
     def get_label(self):
-        return f"{self.label}\nT{list(self.tensor.shape)}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nTensor shape: {list(self.tensor.shape)}"
 
 class ConvOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Conv"):
-        super().__init__(name, node, OperationType.CONV, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Conv"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.CONV, label)
         self.kernel_shape = [attr.ints for attr in node.attribute if attr.name == "kernel_shape"][0]
         self.strides = [attr.ints for attr in node.attribute if attr.name == "strides"][0]
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
@@ -166,11 +144,11 @@ class ConvOP(Operation):
         self.group = [attr.ints for attr in node.attribute if attr.name == "group"][0]
 
     def get_label(self):
-        return f"{self.label}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
 
 class MaxPoolOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "MaxPool"):
-        super().__init__(name, node, OperationType.MAXPOOL, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MaxPool"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.MAXPOOL, label)
         self.kernel_shape = [attr.ints for attr in node.attribute if attr.name == "kernel_shape"][0]
         self.strides = [attr.ints for attr in node.attribute if attr.name == "strides"][0]
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
@@ -178,98 +156,83 @@ class MaxPoolOP(Operation):
         self.ceil_mode = [attr.i for attr in node.attribute if attr.name == "ceil_mode"][0]
 
     def get_label(self):
-        return f"{self.label}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
 
 class ModOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Mod"):
-        super().__init__(name, node, OperationType.MOD, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mod"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.MOD, label)
 
 class ShapeOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Shape"):
-        super().__init__(name, node, OperationType.SHAPE, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Shape"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.SHAPE, label)
 
 class SliceOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Slice"):
-        super().__init__(name, node, OperationType.SLICE, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Slice"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.SLICE, label)
 
 class ConcatOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Concat"):
-        super().__init__(name, node, OperationType.CONCAT, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Concat"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.CONCAT, label)
         self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
 
     def get_label(self):
-        return f"{self.label}\naxis: {self.axis}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
 
 class SqueezeOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Squeeze"):
-        super().__init__(name, node, OperationType.SQUEEZE, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Squeeze"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.SQUEEZE, label)
 
 class UnsqueezeOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Unsqueeze"):
-        super().__init__(name, node, OperationType.UNSQUEEZE, label)
-
-    def get_label(self):
-        return self.label
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Unsqueeze"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.UNSQUEEZE, label)
 
 class SoftMaxOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "SoftMax"):
-        super().__init__(name, node, OperationType.SOFTMAX, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "SoftMax"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.SOFTMAX, label)
         self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
 
     def get_label(self):
-        return f"{self.label}\naxis: {self.axis}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
 
 class GatherOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Gather"):
-        super().__init__(name, node, OperationType.GATHER, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gather"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.GATHER, label)
         self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
 
     def get_label(self):
-        return f"{self.label}\naxis: {self.axis}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
 
 class GemmOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, label: str = "Gemm"):
-        super().__init__(name, node, OperationType.GEMM, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gemm"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.GEMM, label)
         self.alpha = [attr.i for attr in node.attribute if attr.name == "alpha"][0]
         self.beta = [attr.i for attr in node.attribute if attr.name == "beta"][0]
         self.transB = [attr.i for attr in node.attribute if attr.name == "transB"][0]
 
     def get_label(self):
-        return f"{self.label}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
 
 ############### custom operations ####################
 class MacOP(Operation):
-    def __init__(self, name, conv:ConvOP, label: str = "MacOP"):
-        super().__init__(name, None, OperationType.UNKNOWN, label)
+    def __init__(self, name, conv: ConvOP, label: str = "MacOP"):
+        super().__init__(name, None, type=OperationType.UNKNOWN, label=label)
 
-        if conv is not None: ## matmul mac is probably differenet from conv mac
+        if conv is not None:  # matmul mac is probably different from conv mac
             self.kernel_shape = conv.kernel_shape
             self.strides = conv.strides
             self.padding = conv.padding
             self.dilations = conv.dilations
 
     def get_label(self):
-        return f"{self.label}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
 
 class Mac2dOP(Operation):
-    def __init__(self, name, conv:ConvOP, label: str = "Mac2dOP"):
-        super().__init__(name, None, OperationType.UNKNOWN, label)
+    def __init__(self, name, conv: ConvOP, label: str = "Mac2dOP"):
+        super().__init__(name, None, type=OperationType.UNKNOWN, label=label)
         self.kernel_shape = conv.kernel_shape
         self.strides = conv.strides
         self.padding = conv.padding
         self.dilations = conv.dilations
 
     def get_label(self):
-        return f"{self.label}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
