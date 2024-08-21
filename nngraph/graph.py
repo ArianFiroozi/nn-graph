@@ -107,7 +107,15 @@ class Graph(nx.DiGraph):
     def _render_layers(self, show_sublayers=True): #TODO: complete if layer file added
         dot = Digraph()
         for edge in self.edges:
+            dot.node(edge[1].name, color='lightgreen', shape='box', style='filled')
+            dot.node(edge[0].name, color='lightgreen', shape='box', style='filled')
             dot.edge(edge[1].name,edge[0].name)
+
+        for layer in self.nodes():
+            for input in layer.inputs:
+                dot.edge(input.name, layer.name)
+            for output in layer.outputs:
+                dot.edge(layer.name, output.name)
 
         dot.render(self.output_path + '/layers_graph', format='png', cleanup=True) 
 

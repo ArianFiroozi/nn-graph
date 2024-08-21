@@ -70,7 +70,6 @@ class ConstOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, label: str = "Const"):
         super().__init__(name, node, OperationType.CONST, label)
         self.tensor = torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32)
-        self.inputs = []
 
     def get_label(self):
         return f"{self.label}:\nX{list(self.tensor.shape)}"

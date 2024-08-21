@@ -38,7 +38,7 @@ class Layer(nx.DiGraph):
     
     def _set_layer_inout(self):
             for node in self.nodes():
-                if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
+                if len(self.edges) and len(node.outputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
                     self.outputs.append(node)
                 if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
                     self.inputs.append(node)
@@ -210,7 +210,7 @@ class Layer(nx.DiGraph):
             weights_dict[initializer.name] = tensor
         
         all_inputs=[]
-        weights=[0,0,0]
+        weights=None
         for node2 in self.nodes:
             all_inputs += node2.inputs
         
@@ -218,7 +218,6 @@ class Layer(nx.DiGraph):
             if name != matmul.inputs[1]:
                 continue
             weights = TensorOP(name.replace("::", "/"), tensor)
-        print(weights.tensor.shape)
         
         # macs
         for i in range(weights.tensor.shape[1]):
@@ -246,6 +245,8 @@ class Layer(nx.DiGraph):
         if node.op_type not in known_ops.keys():
             print("unknown operation!")
             self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
+        elif self.nodes.__len__()>2: ##custom inside layer is complicated
+            self.add_node(known_ops[node.op_type](node.name, node))
         elif node.op_type=="Conv":
             conv = known_ops[node.op_type](node.name, node)  
             self.__build_conv(known_ops, node, conv)
