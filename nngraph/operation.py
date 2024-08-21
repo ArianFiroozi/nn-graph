@@ -54,7 +54,12 @@ class Operation(nx.DiGraph):
             self.outputs = []
         self.input_shape = None if input_shape is None else list(input_shape)
         self.output_shape = None if output_shape is None else list(output_shape)
+
+        self._build_primitives()
         self.render()
+
+    def _build_primitives(self):
+        pass
 
     def render(self):
         dot = Digraph(self.name)
@@ -121,10 +126,8 @@ class ConstOP(Operation):
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MATMUL, label)
-        self.__build_linear()
-        self.render()
 
-    def __build_linear(self):
+    def _build_primitives(self):
         # blue
         self.add_node(Primitive("Weight" + self.name, label="Weight"))
         self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
@@ -212,20 +215,17 @@ class TensorOP(Operation):
 
 class ConvOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Conv"):
-        super().__init__(name, node, input_shape, output_shape, OperationType.CONV, label)
         self.kernel_shape = [attr.ints for attr in node.attribute if attr.name == "kernel_shape"][0]
         self.strides = [attr.ints for attr in node.attribute if attr.name == "strides"][0]
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
         self.dilations = [attr.ints for attr in node.attribute if attr.name == "dilations"][0]
         self.group = [attr.ints for attr in node.attribute if attr.name == "group"][0]
-        
-        self._build_conv()
-        self.render()
+        super().__init__(name, node, input_shape, output_shape, OperationType.CONV, label)
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
 
-    def _build_conv(self):
+    def _build_primitives(self):
         # weights = self.get_input_tensor(conv)
         weights=[]
         weights.append(self.output_shape[1])
@@ -276,18 +276,53 @@ class ConvOP(Operation):
         for i in range(self.output_shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
 
-
 class MaxPoolOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MaxPool"):
-        super().__init__(name, node, input_shape, output_shape, OperationType.MAXPOOL, label)
         self.kernel_shape = [attr.ints for attr in node.attribute if attr.name == "kernel_shape"][0]
         self.strides = [attr.ints for attr in node.attribute if attr.name == "strides"][0]
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
         self.dilations = [attr.ints for attr in node.attribute if attr.name == "dilations"][0]
         self.ceil_mode = [attr.i for attr in node.attribute if attr.name == "ceil_mode"][0]
+        super().__init__(name, node, input_shape, output_shape, OperationType.MAXPOOL, label)
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
+    
+    def _build_primitives(self):
+        # blue
+        self.add_node(Primitive("Kernel" + self.name, None, label="Kernel"))
+        self.add_node(Primitive("Input" + self.name, None, label="Input"))
+        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
+        
+        # grey
+        self.add_node(Primitive("Padding" + self.name, None, label="Padding"))
+        self.add_node(Primitive("Dilation" + self.name, None, label="Dilation"))
+        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
+        
+        # green
+        self.add_node(Primitive("Output" + self.name, None, label="Output"))
+        self.get_node("Output" + self.name).outputs = self.outputs
+
+        # macs
+        for i in range(self.output_shape[1]):
+            self.add_node(Primitive('Output_c' + str(i) + self.name,None, label="Output Channel" + str(i)))
+            mac=None
+            mac_node_name="MAC" + self.name + str(i)
+            if len(self.kernel_shape)==1:
+                mac=MacPrim(mac_node_name, self, label="MAC" + str(i))
+            elif len(self.kernel_shape)==2:
+                mac=Mac2dPrim(mac_node_name, self, label="MAC" + str(i))
+            else:
+                print("invalid Convolution dims!")
+    
+            self.add_node(mac) 
+            self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+        
+        for i in range(self.input_shape[1]):
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
 
 class ModOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mod"):
@@ -342,47 +377,6 @@ class GemmOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
-
-
-    # def __build_maxpool(self, known_ops, node, conv):
-    #     # blue
-    #     self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
-    #     self.add_node(Operation("Input" + node.name, None, label="Input"))
-    #     self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
-        
-    #     # grey
-    #     self.add_node(Operation("Padding" + node.name, None, label="Padding"))
-    #     self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
-    #     self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
-    #     self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
-        
-    #     # green
-    #     self.add_node(Operation("Output" + node.name, None, label="Output"))
-    #     self.get_node("Output" + node.name).outputs = conv.outputs
-    #     self.outputs.append(self.get_node("Output" + node.name))
-        
-    #     # macs
-    #     for i in range(conv.output_shape[1]):
-    #         self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
-    #         mac=None
-    #         mac_node_name="MAC" + node.name + str(i)
-    #         if len(conv.kernel_shape)==1:
-    #             mac=MacOP(mac_node_name, conv, label="MAC" + str(i))
-    #         elif len(conv.kernel_shape)==2:
-    #             mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i))
-    #         else:
-    #             print("invalid Convolution dims!")
-    
-    #         self.add_node(mac) 
-    #         self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
-    #         self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
-    #         self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
-        
-        
-        
-    #     for i in range(conv.input_shape[1]):
-    #         self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
-
 
     # def get_input_tensor(self, op):
     #     weights_dict = {}
