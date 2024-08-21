@@ -218,9 +218,64 @@ class ConvOP(Operation):
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
         self.dilations = [attr.ints for attr in node.attribute if attr.name == "dilations"][0]
         self.group = [attr.ints for attr in node.attribute if attr.name == "group"][0]
+        
+        self._build_conv()
+        self.render()
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
+
+    def _build_conv(self):
+        # weights = self.get_input_tensor(conv)
+        weights=[]
+        weights.append(self.output_shape[1])
+        weights.append(self.input_shape[1])
+        weights += list(self.kernel_shape)
+
+        # blue
+        self.add_node(Primitive("Weight" + self.name, list(weights), list(weights), label="Weight"))
+        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
+        self.add_node(Primitive("Kernel" + self.name, list(weights), [weights[0]*weights[1], 1], label="Kernel")) ##wrong
+        self.add_edge(self.get_node("Weight" + self.name), self.get_node("Kernel" + self.name))
+        
+        # input_shape, output_shape=self._get_in_out_shape(self)
+        self.add_node(Primitive("Input" + self.name, self.input_shape, self.input_shape, label="Input"))
+        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
+        
+        # grey
+        self.add_node(Primitive("Padding" + self.name, label="Padding"))
+        self.add_node(Primitive("Dilation" + self.name, label="Dilation"))
+        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
+        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
+        
+        # green
+        self.add_node(Primitive("Output" + self.name, None, self.output_shape, label="Output"))
+        self.get_node("Output" + self.name).outputs = self.outputs
+        
+        
+        # macs
+        for i in range(self.output_shape[1]):
+            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            for j in range(self.input_shape[1]):
+                mac=None
+                mac_node_name="MAC" + self.name + str(i) + str(j)
+                if len(self.kernel_shape)==1:
+                    mac=MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                elif len(self.kernel_shape)==2:
+                    mac=Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                else:
+                    print("invalid Convolution dims!")
+        
+                self.add_node(mac) 
+                self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+        
+        
+        
+        for i in range(self.output_shape[1]):
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
+
 
 class MaxPoolOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MaxPool"):
@@ -288,55 +343,6 @@ class GemmOP(Operation):
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
 
-
-
-    # def __build_conv(self, known_ops, node, conv):
-    #     weights = self.get_input_tensor(conv)
-
-    #     # blue
-    #     self.add_node(Operation("Weight" + node.name, None, list(weights.tensor.shape), list(weights.tensor.shape), label="Weight"))
-    #     self.get_node("Weight" + node.name).inputs.append(conv.inputs[1])
-    #     self.add_node(Operation("Kernel" + node.name, None, list(weights.tensor.shape), [weights.tensor.shape[0]*weights.tensor.shape[1], 1], label="Kernel")) ##wrong
-    #     self.add_edge(self.get_node("Weight" + node.name), self.get_node("Kernel" + node.name))
-        
-    #     input_shape, output_shape=self._get_in_out_shape(conv)
-    #     self.add_node(Operation("Input" + node.name, None, input_shape, input_shape, label="Input"))
-    #     self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
-        
-    #     # grey
-    #     self.add_node(Operation("Padding" + node.name, None, label="Padding"))
-    #     self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
-    #     self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
-    #     self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
-        
-    #     # green
-    #     self.add_node(Operation("Output" + node.name, None, None, output_shape, label="Output"))
-    #     self.get_node("Output" + node.name).outputs = conv.outputs
-    #     self.outputs.append(self.get_node("Output" + node.name))
-        
-        
-    #     # macs
-    #     for i in range(conv.output_shape[1]):
-    #         self.add_node(Operation('Output_c' + str(i) + node.name, None, label="Output Channel" + str(i)))
-    #         for j in range(conv.input_shape[1]):
-    #             mac=None
-    #             mac_node_name="MAC" + node.name + str(i) + str(j)
-    #             if len(conv.kernel_shape)==1:
-    #                 mac=MacOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
-    #             elif len(conv.kernel_shape)==2:
-    #                 mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
-    #             else:
-    #                 print("invalid Convolution dims!")
-        
-    #             self.add_node(mac) 
-    #             self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
-    #             self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
-    #             self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
-        
-        
-        
-    #     for i in range(conv.output_shape[1]):
-    #         self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
 
     # def __build_maxpool(self, known_ops, node, conv):
     #     # blue
