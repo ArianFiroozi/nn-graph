@@ -138,7 +138,6 @@ class MatMulOP(Operation):
         # green
         self.add_node(Primitive("Output" + self.name, label="Output"))
         self.get_node("Output" + self.name).outputs = self.outputs
-        # self.outputs.append(self.get_node("Output" + self.name))
 
         # macs
         if (self.output_shape[1]*self.input_shape[1]>10000):
@@ -370,27 +369,72 @@ class GatherOP(Operation):
 
 class GemmOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gemm"):
-        super().__init__(name, node, input_shape, output_shape, OperationType.GEMM, label)
         self.alpha = [attr.i for attr in node.attribute if attr.name == "alpha"][0]
         self.beta = [attr.i for attr in node.attribute if attr.name == "beta"][0]
-        self.transB = [attr.i for attr in node.attribute if attr.name == "transB"][0]
+        self.transA = [attr.i for attr in node.attribute if attr.name == "transA"]
+        self.transB = [attr.i for attr in node.attribute if attr.name == "transB"]
+        self.transA = self.transA[0] if len(self.transA) else None
+        self.transB = self.transB[0] if len(self.transB) else None
+        super().__init__(name, node, input_shape, output_shape, OperationType.GEMM, label)
 
     def get_label(self):
-        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}\ntransA: {self.transA}"
 
-    # def get_input_tensor(self, op):
-    #     weights_dict = {}
-    #     for initializer in self.model_onnx.graph.initializer:
-    #         tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
-    #         weights_dict[initializer.name] = tensor
+    def _build_primitives(self):
+        # blue
+        self.add_node(Primitive("Weight" + self.name, label="Weight"))
+        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
+        weight_name = "Weight" + self.name
         
-    #     all_inputs=[]
-    #     weights=None
-    #     for node in self.nodes:
-    #         all_inputs += node.inputs
+        self.add_node(Primitive("Input" + self.name, label="Input"))
+        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
+        input_name="Input" + self.name
+
+        self.add_node(Primitive("Bias" + self.name, label="Bias"))
+        self.get_node("Bias" + self.name).inputs.append(self.inputs[2])
         
-    #     for name, tensor in weights_dict.items():
-    #         if name != op.inputs[1]:
-    #             continue
-    #         weights = TensorOP(name.replace("::", "/"), tensor)
-    #     return weights
+        # green
+        self.add_node(Primitive("Output" + self.name, label="Output"))
+        self.add_node(Primitive("MatMulOut" + self.name, label="MatMul Output"))
+        self.get_node("Output" + self.name).outputs = self.outputs
+        
+        if self.transA is not None: 
+            self.add_node(Primitive("TransposeA" + self.name, label="Transpose"))
+            self.add_edge(self.get_node("Input" + self.name), self.get_node("TransposeA" + self.name))
+            input_name="TransposeA" + self.name
+
+        if self.transB is not None: 
+            self.add_node(Primitive("TransposeB" + self.name, label="Transpose")) #transpose prim
+            self.add_edge(self.get_node("Weight" + self.name), self.get_node("TransposeB" + self.name))
+            weight_name="TransposeB" + self.name
+
+        # macs
+        if (self.output_shape[1]*self.input_shape[1]>10000):
+            print("operation too big")
+            return
+
+        for i in range(self.output_shape[1]):
+            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            for j in range(self.input_shape[1]):
+                mac=None
+                mac_node_name="MAC" + self.name + str(i) + str(j)
+                mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
+                self.add_node(mac) 
+                self.add_edge(self.get_node(input_name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(weight_name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+        
+        for i in range(self.output_shape[1]):
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('MatMulOut' + self.name))
+
+        self.add_node(Primitive("MyMultA" + self.name, label="MyMult"))
+        self.add_node(Primitive("MyMultB" + self.name, label="MyMult"))
+        self.add_edge(self.get_node('MatMulOut'  + self.name), self.get_node('MyMultA' + self.name))
+        self.add_edge(self.get_node('Bias'  + self.name), self.get_node('MyMultB' + self.name))
+
+        self.add_node(Primitive("ADD" + self.name, label="ADD"))
+        self.add_edge(self.get_node('MyMultA'  + self.name), self.get_node('ADD' + self.name))
+        self.add_edge(self.get_node('MyMultB'  + self.name), self.get_node('ADD' + self.name))
+        self.add_edge(self.get_node('ADD'  + self.name), self.get_node('Output' + self.name))
+
+
