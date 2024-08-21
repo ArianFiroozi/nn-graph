@@ -1,6 +1,7 @@
 import torch
 from enum import Enum
 import onnx
+from nngraph.primitive import *
 
 class OperationType(Enum):
     INPUT = "Input"
@@ -211,28 +212,3 @@ class GemmOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
-
-############### custom operations ####################
-class MacOP(Operation):
-    def __init__(self, name, conv: ConvOP, label: str = "MacOP"):
-        super().__init__(name, None, type=OperationType.UNKNOWN, label=label)
-
-        if conv is not None:  # matmul mac is probably different from conv mac
-            self.kernel_shape = conv.kernel_shape
-            self.strides = conv.strides
-            self.padding = conv.padding
-            self.dilations = conv.dilations
-
-    def get_label(self):
-        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
-
-class Mac2dOP(Operation):
-    def __init__(self, name, conv: ConvOP, label: str = "Mac2dOP"):
-        super().__init__(name, None, type=OperationType.UNKNOWN, label=label)
-        self.kernel_shape = conv.kernel_shape
-        self.strides = conv.strides
-        self.padding = conv.padding
-        self.dilations = conv.dilations
-
-    def get_label(self):
-        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
