@@ -41,9 +41,10 @@ class Layer(nx.DiGraph):
     
     def _set_layer_inout(self):
             for node in self.nodes():
-                if len(self.edges) and len(node.outputs)>np.count_nonzero(np.array(self.edges)[:,0]==self.get_node(node.get_name())):
+                target_node = self.get_node(node.get_name())
+                if len(self.edges) and len(node.outputs)>sum(1 for edge in self.edges() if edge[0] == target_node):
                     self.outputs.append(node)
-                if len(self.edges) and len(node.inputs)>np.count_nonzero(np.array(self.edges)[:,1]==self.get_node(node.get_name())):
+                if len(self.edges) and len(node.inputs)>sum(1 for edge in self.edges() if edge[1] == target_node):
                     self.inputs.append(node)
                 if not len(self.edges) and len(self.nodes):
                     if len(node.inputs):

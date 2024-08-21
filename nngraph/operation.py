@@ -1,7 +1,10 @@
 import torch
 from enum import Enum
 import onnx
+import networkx as nx
 from nngraph.primitive import *
+from graphviz import Digraph
+
 
 class OperationType(Enum):
     INPUT = "Input"
@@ -37,8 +40,9 @@ class OperationType(Enum):
     GATHER = "Gather"
     GEMM = "General Matrix Multiply"
 
-class Operation:
+class Operation(nx.DiGraph):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape=None, output_shape=None, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
+        super().__init__()
         self.name = name
         self.label = label
         self.type = type
@@ -50,6 +54,37 @@ class Operation:
             self.outputs = []
         self.input_shape = None if input_shape is None else list(input_shape)
         self.output_shape = None if output_shape is None else list(output_shape)
+        self.render()
+
+    def render(self):
+        dot = Digraph(self.name)
+        dot.attr(label=self.label,
+                style='dashed',
+                color='black', 
+                penwidth='2')
+
+        for node in self.nodes():
+            color = 'lightgrey'
+            shape = 'box'
+            style = 'filled'
+
+            # if isinstance(node, ConstOP) or isinstance(node, TensorOP):
+            #     color = 'lightblue'
+
+            dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
+
+            for input_name in node.inputs:
+                input_name=str(input_name).replace("::","/")
+                known_inputs = []
+                for pred in self.predecessors(node):
+                    known_inputs+=pred.outputs
+                if input_name not in known_inputs:
+                    dot.edge(input_name, node.get_name())
+
+        for edge in self.edges():
+            dot.edge(edge[0].get_name(), edge[1].get_name())
+
+        dot.render('./nngraph/outputs/primitive/' + self.name, format='png', cleanup=True) 
 
     def __hash__(self):
         return hash(self.name)
@@ -68,7 +103,13 @@ class Operation:
 
     def get_name(self) -> str:
         return self.name
-
+    
+    def get_node(self, name:str)->Primitive:
+        for node in self.nodes():
+            if node.get_name() == name:
+                return node
+        return None
+    
 class ConstOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Const"):
         super().__init__(name, node, input_shape, output_shape, OperationType.CONST, label)
@@ -80,6 +121,40 @@ class ConstOP(Operation):
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MATMUL, label)
+        self.__build_linear()
+        self.render()
+
+    def __build_linear(self):
+        # blue
+        self.add_node(Primitive("Weight" + self.name, label="Weight"))
+        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
+        
+        self.add_node(Primitive("Input" + self.name, label="Input"))
+        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
+        
+        # green
+        self.add_node(Primitive("Output" + self.name, label="Output"))
+        self.get_node("Output" + self.name).outputs = self.outputs
+        # self.outputs.append(self.get_node("Output" + self.name))
+
+        # macs
+        if (self.output_shape[1]*self.input_shape[1]>10000):
+            print("operation too big")
+            return
+
+        for i in range(self.output_shape[1]):
+            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            for j in range(self.input_shape[1]):
+                mac=None
+                mac_node_name="MAC" + self.name + str(i) + str(j)
+                mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
+                self.add_node(mac) 
+                self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
+                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+        
+        for i in range(self.output_shape[1]):
+            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
 
 class TransposeOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Transpose"):
@@ -212,3 +287,110 @@ class GemmOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nalpha: {self.alpha}\nbeta: {self.beta}\ntransB: {self.transB}"
+
+
+
+    # def __build_conv(self, known_ops, node, conv):
+    #     weights = self.get_input_tensor(conv)
+
+    #     # blue
+    #     self.add_node(Operation("Weight" + node.name, None, list(weights.tensor.shape), list(weights.tensor.shape), label="Weight"))
+    #     self.get_node("Weight" + node.name).inputs.append(conv.inputs[1])
+    #     self.add_node(Operation("Kernel" + node.name, None, list(weights.tensor.shape), [weights.tensor.shape[0]*weights.tensor.shape[1], 1], label="Kernel")) ##wrong
+    #     self.add_edge(self.get_node("Weight" + node.name), self.get_node("Kernel" + node.name))
+        
+    #     input_shape, output_shape=self._get_in_out_shape(conv)
+    #     self.add_node(Operation("Input" + node.name, None, input_shape, input_shape, label="Input"))
+    #     self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
+        
+    #     # grey
+    #     self.add_node(Operation("Padding" + node.name, None, label="Padding"))
+    #     self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
+    #     self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
+    #     self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
+        
+    #     # green
+    #     self.add_node(Operation("Output" + node.name, None, None, output_shape, label="Output"))
+    #     self.get_node("Output" + node.name).outputs = conv.outputs
+    #     self.outputs.append(self.get_node("Output" + node.name))
+        
+        
+    #     # macs
+    #     for i in range(conv.output_shape[1]):
+    #         self.add_node(Operation('Output_c' + str(i) + node.name, None, label="Output Channel" + str(i)))
+    #         for j in range(conv.input_shape[1]):
+    #             mac=None
+    #             mac_node_name="MAC" + node.name + str(i) + str(j)
+    #             if len(conv.kernel_shape)==1:
+    #                 mac=MacOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
+    #             elif len(conv.kernel_shape)==2:
+    #                 mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i) + "," + str(j))
+    #             else:
+    #                 print("invalid Convolution dims!")
+        
+    #             self.add_node(mac) 
+    #             self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
+    #             self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
+    #             self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
+        
+        
+        
+    #     for i in range(conv.output_shape[1]):
+    #         self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
+    # def __build_maxpool(self, known_ops, node, conv):
+    #     # blue
+    #     self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
+    #     self.add_node(Operation("Input" + node.name, None, label="Input"))
+    #     self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
+        
+    #     # grey
+    #     self.add_node(Operation("Padding" + node.name, None, label="Padding"))
+    #     self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
+    #     self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
+    #     self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
+        
+    #     # green
+    #     self.add_node(Operation("Output" + node.name, None, label="Output"))
+    #     self.get_node("Output" + node.name).outputs = conv.outputs
+    #     self.outputs.append(self.get_node("Output" + node.name))
+        
+    #     # macs
+    #     for i in range(conv.output_shape[1]):
+    #         self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
+    #         mac=None
+    #         mac_node_name="MAC" + node.name + str(i)
+    #         if len(conv.kernel_shape)==1:
+    #             mac=MacOP(mac_node_name, conv, label="MAC" + str(i))
+    #         elif len(conv.kernel_shape)==2:
+    #             mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i))
+    #         else:
+    #             print("invalid Convolution dims!")
+    
+    #         self.add_node(mac) 
+    #         self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
+    #         self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
+    #         self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
+        
+        
+        
+    #     for i in range(conv.input_shape[1]):
+    #         self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
+
+    # def get_input_tensor(self, op):
+    #     weights_dict = {}
+    #     for initializer in self.model_onnx.graph.initializer:
+    #         tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
+    #         weights_dict[initializer.name] = tensor
+        
+    #     all_inputs=[]
+    #     weights=None
+    #     for node in self.nodes:
+    #         all_inputs += node.inputs
+        
+    #     for name, tensor in weights_dict.items():
+    #         if name != op.inputs[1]:
+    #             continue
+    #         weights = TensorOP(name.replace("::", "/"), tensor)
+    #     return weights
