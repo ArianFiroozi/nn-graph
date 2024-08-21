@@ -93,6 +93,23 @@ class Layer(nx.DiGraph):
 
         return output_shape[0]
 
+    def get_operation_input_shape(self, model, layer_name, input_tensor):
+        input_shape = []
+
+        def hook(module, input, output):
+            if len(input):
+                input_shape.append(input[0].shape)
+            else:
+                input_shape.append(-1)
+
+        layer = dict(model.named_modules())[layer_name]
+        layer.register_forward_hook(hook)
+
+        with torch.no_grad():
+            model(input_tensor)
+
+        return input_shape
+
     def _build_operations(self):
         for node in self.model_onnx.graph.node:
             name = self.parse_onnx_layer_name(node.name)
@@ -255,6 +272,7 @@ class Layer(nx.DiGraph):
                     "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
                     "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
                     "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
+        
         if node.op_type in known_ops.keys():
             from onnx2torch import convert
             onnx_model_path = 'models/model.onnx'
@@ -263,11 +281,13 @@ class Layer(nx.DiGraph):
 
             dummy_input = torch.randn(28,28)
 
-            print(list(dict(torch_model.named_modules()).keys()))
+            # print(list(dict(torch_model.named_modules()).keys()))
             layer_name = node.name[1:]
             print(node.name[1:])
             output_shape = self.get_operation_output_shape(torch_model, layer_name, dummy_input)
+            input_shape = self.get_operation_input_shape(torch_model, layer_name, dummy_input)
 
+            print(f"Input shape of operation '{layer_name}': {input_shape}")
             print(f"Output shape of operation '{layer_name}': {output_shape}")
 
         if node.op_type not in known_ops.keys():
