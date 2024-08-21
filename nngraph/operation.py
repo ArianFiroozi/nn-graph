@@ -163,8 +163,8 @@ class ConvOP(Operation):
         self.kernel_shape = [attr.ints for attr in node.attribute if attr.name == "kernel_shape"][0]
         self.strides = [attr.ints for attr in node.attribute if attr.name == "strides"][0]
         self.padding = [attr.ints for attr in node.attribute if attr.name == "pads"][0]
-        self.group = [attr.ints for attr in node.attribute if attr.name == "group"][0]
         self.dilations = [attr.ints for attr in node.attribute if attr.name == "dilations"][0]
+        self.group = [attr.ints for attr in node.attribute if attr.name == "group"][0]
 
     def get_label(self):
         return f"{self.label}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
@@ -259,7 +259,6 @@ class MacOP(Operation):
             self.kernel_shape = conv.kernel_shape
             self.strides = conv.strides
             self.padding = conv.padding
-            self.group = conv.group
             self.dilations = conv.dilations
 
     def get_label(self):
@@ -271,7 +270,6 @@ class Mac2dOP(Operation):
         self.kernel_shape = conv.kernel_shape
         self.strides = conv.strides
         self.padding = conv.padding
-        self.group = conv.group
         self.dilations = conv.dilations
 
     def get_label(self):

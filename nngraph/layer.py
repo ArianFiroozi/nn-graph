@@ -152,6 +152,45 @@ class Layer(nx.DiGraph):
         for i in range(weights.tensor.shape[0]):
             self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
 
+    def __build_maxpool(self, known_ops, node, conv):
+        # blue
+        self.add_node(Operation("Kernel" + node.name, None, label="Kernel"))
+        self.add_node(Operation("Input" + node.name, None, label="Input"))
+        self.get_node("Input" + node.name).inputs.append(conv.inputs[0])
+        
+        # grey
+        self.add_node(Operation("Padding" + node.name, None, label="Padding"))
+        self.add_node(Operation("Dilation" + node.name, None, label="Dilation"))
+        self.add_edge(self.get_node("Kernel" + node.name), self.get_node("Dilation" + node.name))
+        self.add_edge(self.get_node("Input" + node.name), self.get_node("Padding" + node.name))
+        
+        # green
+        self.add_node(Operation("Output" + node.name, None, label="Output"))
+        self.get_node("Output" + node.name).outputs = conv.outputs
+        self.outputs.append(self.get_node("Output" + node.name))
+        
+        # macs
+        for i in range(2):
+            self.add_node(Operation('Output_c' + str(i) + node.name,None, label="Output Channel" + str(i)))
+            mac=None
+            mac_node_name="MAC" + node.name + str(i)
+            if len(conv.kernel_shape)==1:
+                mac=MacOP(mac_node_name, conv, label="MAC" + str(i))
+            elif len(conv.kernel_shape)==2:
+                mac=Mac2dOP(mac_node_name, conv, label="MAC" + str(i))
+            else:
+                print("invalid Convolution dims!")
+    
+            self.add_node(mac) 
+            self.add_edge(self.get_node('Padding' + node.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node('Dilation' + node.name), self.get_node(mac_node_name))
+            self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + node.name))
+        
+        
+        
+        for i in range(2):
+            self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
+
     def __build_linear(self, known_ops, node, matmul):
         # blue
         self.add_node(Operation("Weight" + node.name, None, label="Weight"))
@@ -210,6 +249,9 @@ class Layer(nx.DiGraph):
         elif node.op_type=="Conv":
             conv = known_ops[node.op_type](node.name, node)  
             self.__build_conv(known_ops, node, conv)
+        elif node.op_type=="MaxPool":
+            conv = known_ops[node.op_type](node.name, node)  
+            self.__build_maxpool(known_ops, node, conv)
         elif node.op_type=="MatMul":
             matmul = known_ops[node.op_type](node.name, node) 
             self.__build_linear(known_ops, node, matmul)
