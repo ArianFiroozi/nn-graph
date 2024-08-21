@@ -5,6 +5,7 @@ from enum import Enum
 import networkx as nx
 from nngraph.operation import *
 import numpy as np
+from onnx2torch import convert
 
 class LayerType(Enum):
     CONV1D=1
@@ -78,6 +79,36 @@ class Layer(nx.DiGraph):
 
     def parse_onnx_op_name(self, name):
         return name.split('/')[-1]
+
+    def _onnx_node_to_op(self, node):
+        known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
+                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
+                    "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
+                    "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
+        
+        input_shape, output_shape = self._get_in_out_shape(node, known_ops)
+
+        if node.op_type not in known_ops.keys():
+            print("unknown operation!")
+            self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
+
+        elif self.nodes.__len__()>2: ##custom inside layer is complicated
+            self.add_node(known_ops[node.op_type](node.name, node))
+
+        elif node.op_type=="Conv":
+            conv = known_ops[node.op_type](node.name, node)  
+            self.__build_conv(known_ops, node, conv)
+        elif node.op_type=="MaxPool":
+            conv = known_ops[node.op_type](node.name, node)  
+            self.__build_maxpool(known_ops, node, conv)
+        elif node.op_type=="MatMul":
+            matmul = known_ops[node.op_type](node.name, node) 
+            self.__build_linear(known_ops, node, matmul)
+
+        else:
+            self.add_node(known_ops[node.op_type](node.name, node))
+        
+        self._add_tensors()
     
     def get_operation_output_shape(self, model, layer_name, input_tensor):
         output_shape = []
@@ -108,7 +139,7 @@ class Layer(nx.DiGraph):
         with torch.no_grad():
             model(input_tensor)
 
-        return input_shape
+        return input_shape[0]
 
     def _build_operations(self):
         for node in self.model_onnx.graph.node:
@@ -267,61 +298,32 @@ class Layer(nx.DiGraph):
         for i in range(weights.tensor.shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + node.name), self.get_node('Output' + node.name))
 
-    def _onnx_node_to_op(self, node):
-        known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
-                    "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
-                    "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
-        
-        if node.op_type in known_ops.keys():
-            from onnx2torch import convert
-            onnx_model_path = 'models/model.onnx'
-            onnx_model = onnx.load(onnx_model_path)
-            torch_model = convert(onnx_model)
-
-            dummy_input = torch.randn(28,28)
-
-            # print(list(dict(torch_model.named_modules()).keys()))
-            layer_name = node.name[1:]
-            print(node.name[1:])
-            output_shape = self.get_operation_output_shape(torch_model, layer_name, dummy_input)
-            input_shape = self.get_operation_input_shape(torch_model, layer_name, dummy_input)
-
-            print(f"Input shape of operation '{layer_name}': {input_shape}")
-            print(f"Output shape of operation '{layer_name}': {output_shape}")
-
-        if node.op_type not in known_ops.keys():
-            print("unknown operation!")
-            self.add_node(Operation(node.name, node, label=self.parse_onnx_op_name(node.name)))
-        elif self.nodes.__len__()>2: ##custom inside layer is complicated
-            self.add_node(known_ops[node.op_type](node.name, node))
-        elif node.op_type=="Conv":
-            conv = known_ops[node.op_type](node.name, node)  
-            self.__build_conv(known_ops, node, conv)
-        elif node.op_type=="MaxPool":
-            conv = known_ops[node.op_type](node.name, node)  
-            self.__build_maxpool(known_ops, node, conv)
-        elif node.op_type=="MatMul":
-            matmul = known_ops[node.op_type](node.name, node) 
-            self.__build_linear(known_ops, node, matmul)
-        else:
-            self.add_node(known_ops[node.op_type](node.name, node))
-        
+    def _add_tensors(self):
         weights_dict = {}
         for initializer in self.model_onnx.graph.initializer:
             tensor = torch.from_numpy(onnx.numpy_helper.to_array(initializer))
             weights_dict[initializer.name] = tensor
-
+        
         all_inputs=[]
         for node in self.nodes:
             all_inputs += node.inputs
-
+        
         for name, tensor in weights_dict.items():
             if name not in all_inputs:
                 continue
             tensor = TensorOP(name.replace("::", "/"), tensor)
             tensor.outputs=[tensor.name]
             self.add_node(tensor)
+
+    def _get_in_out_shape(self, node, known_ops):
+        if node.op_type in known_ops.keys():
+            torch_model = convert(self.model_onnx)
+            dummy_input = torch.randn(28,28)
+            output_shape = self.get_operation_output_shape(torch_model, node.name[1:], dummy_input)
+            input_shape = self.get_operation_input_shape(torch_model, node.name[1:], dummy_input)
+            
+            return input_shape, output_shape
+        return -1, -1
 
     def get_output_shape(self):
         output = self.outputs[0] ##only one
