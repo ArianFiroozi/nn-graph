@@ -6,7 +6,6 @@ from nngraph.primitive import *
 from graphviz import Digraph
 
 class OperationType(Enum):
-    INPUT = "Input"
     MAC = "Multiply-Accumulate"
     ADD = "Addition"
     MULT = "Multiplication"
@@ -17,7 +16,6 @@ class OperationType(Enum):
     CONST = "Constant"
     PROJECT = "Projection"
     DOT_PRODUCT = "Dot Product"
-    UNKNOWN = "Unknown"
     MATMUL = "Matrix Multiplication"
     TRANSPOSE = "Transpose"
     DIV = "Division"
@@ -38,6 +36,7 @@ class OperationType(Enum):
     SOFTMAX = "Softmax"
     GATHER = "Gather"
     GEMM = "General Matrix Multiply"
+    UNKNOWN = "Unknown"
 
 class Operation(nx.DiGraph):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape=None, output_shape=None, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
@@ -115,9 +114,9 @@ class Operation(nx.DiGraph):
         return None
     
 class ConstOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Const"):
-        super().__init__(name, node, input_shape, output_shape, OperationType.CONST, label)
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape=None, label: str = "Const"):
         self.tensor = torch.frombuffer(node.attribute[0].t.raw_data, dtype=torch.float32)
+        super().__init__(name, node, input_shape, self.tensor.shape, OperationType.CONST, label)
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nTensor shape: {list(self.tensor.shape)}"
@@ -125,6 +124,9 @@ class ConstOP(Operation):
 class DivOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Div"):
         super().__init__(name, node, input_shape, output_shape, OperationType.DIV, label)
+
+    def _build_primitives(self):
+        
 
 class ClipOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Clip"):
@@ -208,11 +210,19 @@ class SoftMaxOP(Operation):
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
 
-############has multiple primitives##############
-
 class MulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mul"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MULT, label)
+
+class GatherOP(Operation):
+    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gather"):
+        super().__init__(name, node, input_shape, output_shape, OperationType.GATHER, label)
+        self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
+
+    def get_label(self):
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
+
+############has multiple primitives##############
 
 class MaxPoolOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MaxPool"):
@@ -275,7 +285,6 @@ class ConvOP(Operation):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
 
     def _build_primitives(self):
-        # weights = self.get_input_tensor(conv)
         weights=[]
         weights.append(self.output_shape[1])
         weights.append(self.input_shape[1])
@@ -286,8 +295,7 @@ class ConvOP(Operation):
         self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
         self.add_node(Primitive("Kernel" + self.name, list(weights), [weights[0]*weights[1], 1], label="Kernel")) ##wrong
         self.add_edge(self.get_node("Weight" + self.name), self.get_node("Kernel" + self.name))
-        
-        # input_shape, output_shape=self._get_in_out_shape(self)
+
         self.add_node(Primitive("Input" + self.name, self.input_shape, self.input_shape, label="Input"))
         self.get_node("Input" + self.name).inputs.append(self.inputs[0])
         
@@ -300,7 +308,6 @@ class ConvOP(Operation):
         # green
         self.add_node(Primitive("Output" + self.name, None, self.output_shape, label="Output"))
         self.get_node("Output" + self.name).outputs = self.outputs
-        
         
         # macs
         for i in range(self.output_shape[1]):
@@ -319,16 +326,14 @@ class ConvOP(Operation):
                 self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
                 self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
-        
-        
-        
+
         for i in range(self.output_shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
 
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MATMUL, label)
-
+    
     def _build_primitives(self):
         # blue
         self.add_node(Primitive("Weight" + self.name, label="Weight"))
@@ -342,13 +347,13 @@ class MatMulOP(Operation):
         self.get_node("Output" + self.name).outputs = self.outputs
 
         # macs
-        if (self.output_shape[1]*self.input_shape[1]>10000):
+        if (self.output_shape[1]*self.input_shape[0][1]>10000):
             print("operation too big")
             return
 
         for i in range(self.output_shape[1]):
             self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
-            for j in range(self.input_shape[1]):
+            for j in range(self.input_shape[0][1]):
                 mac=None
                 mac_node_name="MAC" + self.name + str(i) + str(j)
                 mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
@@ -359,14 +364,6 @@ class MatMulOP(Operation):
         
         for i in range(self.output_shape[1]):
             self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
-
-class GatherOP(Operation):
-    def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gather"):
-        super().__init__(name, node, input_shape, output_shape, OperationType.GATHER, label)
-        self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
-
-    def get_label(self):
-        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
 
 class GemmOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gemm"):
@@ -437,5 +434,3 @@ class GemmOP(Operation):
         self.add_edge(self.get_node('MyMultA'  + self.name), self.get_node('ADD' + self.name))
         self.add_edge(self.get_node('MyMultB'  + self.name), self.get_node('ADD' + self.name))
         self.add_edge(self.get_node('ADD'  + self.name), self.get_node('Output' + self.name))
-
-

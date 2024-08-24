@@ -103,7 +103,7 @@ class Layer(nx.DiGraph):
         output_shape = []
 
         def hook(module, input, output):
-            output_shape.append(output.shape)
+            output_shape.append(list(output.shape))
 
         layer = dict(model.named_modules())[layer_name]
         layer.register_forward_hook(hook)
@@ -117,10 +117,11 @@ class Layer(nx.DiGraph):
         input_shape = []
 
         def hook(module, input, output):
-            if len(input):
-                input_shape.append(input[0].shape)
-            else:
-                input_shape.append(None)
+            for inp in input:
+                if inp is not None:
+                    input_shape.append(list(inp.shape))
+                else:
+                    input_shape.append(None)
 
         layer = dict(model.named_modules())[layer_name]
         layer.register_forward_hook(hook)
@@ -128,7 +129,7 @@ class Layer(nx.DiGraph):
         with torch.no_grad():
             model(input_tensor)
 
-        return input_shape[0]
+        return input_shape[0] if len(input_shape)==1 else input_shape
 
     def _build_operations(self):
         for node in self.model_onnx.graph.node:

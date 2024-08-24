@@ -58,3 +58,15 @@ class Mac2dPrim(Primitive):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
+
+class DivPrim(Primitive):
+    def __init__(self, name, conv, label: str = "Mac2dPrim"):
+        super().__init__(name, None, type=PrimitiveType.MAC2D, label=label)
+        self.kernel_shape = conv.kernel_shape
+        self.strides = conv.strides
+        self.padding = conv.padding
+        self.dilations = conv.dilations
+
+    def get_label(self):
+        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
+
