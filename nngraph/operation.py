@@ -38,7 +38,7 @@ class OperationType(Enum):
     GEMM = "General Matrix Multiply"
     UNKNOWN = "Unknown"
 
-class Operation(nx.DiGraph):
+class Operation(nx.DiGraph):    
     def __init__(self, name: str, node: onnx.NodeProto, input_shape=None, output_shape=None, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
         super().__init__()
         self.name = name
@@ -66,13 +66,21 @@ class Operation(nx.DiGraph):
                 color='black', 
                 penwidth='2')
 
+        if (len(self.nodes)>1000):
+            print("operation too big to render")
+            dot.attr(label = self.label + " too big")
+            dot.render('./nngraph/outputs/primitive/' + self.name, format='png', cleanup=True) 
+            return
+
         for node in self.nodes():
             color = 'lightgrey'
             shape = 'box'
             style = 'filled'
 
-            # if isinstance(node, ConstOP) or isinstance(node, TensorOP):
-            #     color = 'lightblue'
+            if isinstance(node, InputPrim):
+                color = 'lightblue'
+            if isinstance(node, OutputPrim):
+                color = 'lightgreen'
 
             dot.node(node.get_name(), node.get_label(), color=color, shape=shape, style=style)
 
@@ -126,29 +134,92 @@ class DivOP(Operation):
         super().__init__(name, node, input_shape, output_shape, OperationType.DIV, label)
 
     def _build_primitives(self):
-        
+        self.add_node(InputPrim("InputA"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("InputB"+self.name, self.input_shape[0]))
+        self.add_node(DivPrim("Div"+self.name))
+        self.add_edge(self.get_node("InputA"+self.name), self.get_node("Div"+self.name))
+        self.add_edge(self.get_node("InputB"+self.name), self.get_node("Div"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Div"+self.name), self.get_node("Output"+self.name))
 
 class ClipOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Clip"):
         super().__init__(name, node, input_shape, output_shape, OperationType.CLIP, label)
+    
+    def _build_primitives(self):
+        input_num = len(self.input_shape) if isinstance(self.input_shape[0], list) else 1
+        self.add_node(InputPrim("Input"+self.name, self.input_shape if input_num==1 else self.input_shape[0]))
+        self.add_node(MaxPrim("Max"+self.name))
+        self.add_node(MinPrim("Min"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Max"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Min"+self.name))
+
+        if input_num>1:
+            self.add_node(Input("InputMin"+self.name, self.input_shape[1], label="min"))
+            self.add_edge(self.get_node("InputMin"+self.name), self.get_node("Min"+self.name))
+        if input_num==3:
+            self.add_node(Input("InputMax"+self.name, self.input_shape[1], label="max"))
+            self.add_edge(self.get_node("InputMax"+self.name), self.get_node("Max"+self.name))
+        
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Min"+self.name), self.get_node("Output"+self.name))
 
 class FloorOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Floor"):
         super().__init__(name, node, input_shape, output_shape, OperationType.FLOOR, label)
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0]))
+        self.add_node(FloorPrim("Floor"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Floor"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Floor"+self.name), self.get_node("Output"+self.name))
 
 class AddOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Add"):
         super().__init__(name, node, input_shape, output_shape, OperationType.ADD, label)
 
+    def _build_primitives(self):
+        self.add_node(InputPrim("InputA"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("InputB"+self.name, self.input_shape[0]))
+        self.add_node(AddPrim("Add"+self.name))
+        self.add_edge(self.get_node("InputA"+self.name), self.get_node("Add"+self.name))
+        self.add_edge(self.get_node("InputB"+self.name), self.get_node("Add"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Add"+self.name), self.get_node("Output"+self.name))
+
 class SubOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Sub"):
         super().__init__(name, node, input_shape, output_shape, OperationType.SUB, label)
+
+    def _build_primitives(self):
+        self.add_node(InputPrim("InputA"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("InputB"+self.name, self.input_shape[0]))
+        self.add_node(SubPrim("Sub"+self.name))
+        self.add_edge(self.get_node("InputA"+self.name), self.get_node("Sub"+self.name))
+        self.add_edge(self.get_node("InputB"+self.name), self.get_node("Sub"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Sub"+self.name), self.get_node("Output"+self.name))
 
 class ReluOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Relu"):
         super().__init__(name, node, input_shape, output_shape, OperationType.RELU, label)
 
-class ReshapeOP(Operation):
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0]))
+        self.add_node(Primitive("Zero"+self.name, label="Zero"))
+        self.add_node(MaxPrim("Max"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Max"+self.name))
+        self.add_edge(self.get_node("Zero"+self.name), self.get_node("Max"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Max"+self.name), self.get_node("Output"+self.name))
+
+class ReshapeOP(Operation): 
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Reshape"):
         super().__init__(name, node, input_shape, output_shape, OperationType.RESHAPE, label)
         self.allowzero = None
@@ -157,6 +228,14 @@ class ReshapeOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nallowzero: {self.allowzero}"
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape))
+        self.add_node(ReshapePrim("Reshape"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Reshape"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Reshape"+self.name), self.get_node("Output"+self.name))
 
 class TensorOP(Operation):
     def __init__(self, name: str, tensor: torch.Tensor, label: str = "Tensor"):
@@ -170,13 +249,50 @@ class ModOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mod"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MOD, label)
 
+    def _build_primitives(self):
+        self.add_node(InputPrim("InputA"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("InputB"+self.name, self.input_shape[0]))
+        self.add_node(ModPrim("Mod"+self.name))
+        self.add_edge(self.get_node("InputA"+self.name), self.get_node("Mod"+self.name))
+        self.add_edge(self.get_node("InputB"+self.name), self.get_node("Mod"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Mod"+self.name), self.get_node("Output"+self.name))
+
 class ShapeOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Shape"):
         super().__init__(name, node, input_shape, output_shape, OperationType.SHAPE, label)
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape))
+        self.add_node(ShapePrim("Shape"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Shape"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Shape"+self.name), self.get_node("Output"+self.name))
 
 class SliceOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Slice"):
         super().__init__(name, node, input_shape, output_shape, OperationType.SLICE, label)
+        
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0],label="Data"))
+        self.add_node(InputPrim("InputStart"+self.name, self.input_shape[1],label="Start"))
+        self.add_node(InputPrim("InputEnd"+self.name, self.input_shape[2],label="End"))
+        self.add_node(SlicePrim("Slice"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Slice"+self.name))
+        self.add_edge(self.get_node("InputStart"+self.name), self.get_node("Slice"+self.name))
+        self.add_edge(self.get_node("InputEnd"+self.name), self.get_node("Slice"+self.name))
+
+        if len(self.input_shape)>=4:
+            self.add_node(InputPrim("InputAxes"+self.name, self.input_shape[3],label="Axes"))
+            self.add_edge(self.get_node("InputAxes"+self.name), self.get_node("Slice"+self.name))
+        if len(self.input_shape)==5:
+            self.add_node(InputPrim("InputSteps"+self.name, self.input_shape[4],label="Steps"))
+            self.add_edge(self.get_node("InputSteps"+self.name), self.get_node("Slice"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Slice"+self.name), self.get_node("Output"+self.name))
 
 class TransposeOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Transpose"):
@@ -185,6 +301,14 @@ class TransposeOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nPerm: {self.perm}"
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape))
+        self.add_node(TransposePrim("Transpose"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Transpose"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Transpose"+self.name), self.get_node("Output"+self.name))
 
 class ConcatOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Concat"):
@@ -193,14 +317,57 @@ class ConcatOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
+    
+    def _build_primitives(self):
+        input_num = len(self.input_shape) if isinstance(self.input_shape[0], list) else 1
+        self.add_node(ConcatPrim("Concat"+self.name))
+
+        if input_num==1:
+            self.add_node(InputPrim("Input"+self.name, self.input_shape))
+            self.add_edge(self.get_node("Input"+self.name), self.get_node("Concat"+self.name))
+        else:
+            for i in range(input_num):
+                self.add_node(InputPrim("Input"+str(i)+self.name, self.input_shape[i]))
+                self.add_edge(self.get_node("Input"+str(i)+self.name), self.get_node("Concat"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Concat"+self.name), self.get_node("Output"+self.name))
 
 class SqueezeOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Squeeze"):
         super().__init__(name, node, input_shape, output_shape, OperationType.SQUEEZE, label)
+    
+    def _build_primitives(self):
+        input_num = len(self.input_shape) if isinstance(self.input_shape[0], list) else 1
+
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0] if input_num>1 else self.input_shape))
+        self.add_node(SqueezePrim("Squeeze"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Squeeze"+self.name))
+
+        if input_num==2:
+            self.add_node(InputPrim("Axes"+self.name, self.input_shape[1]))
+            self.add_edge(self.get_node("Axes"+self.name), self.get_node("Squeeze"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Squeeze"+self.name), self.get_node("Output"+self.name))
 
 class UnsqueezeOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Unsqueeze"):
         super().__init__(name, node, input_shape, output_shape, OperationType.UNSQUEEZE, label)
+            
+    def _build_primitives(self):
+        input_num = len(self.input_shape) if isinstance(self.input_shape[0], list) else 1
+
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0] if input_num>1 else self.input_shape))
+        self.add_node(UnsqueezePrim("Unsqueeze"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Unsqueeze"+self.name))
+
+        if input_num==2:
+            self.add_node(InputPrim("Axes"+self.name, self.input_shape[1]))
+            self.add_edge(self.get_node("Axes"+self.name), self.get_node("Unsqueeze"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Unsqueeze"+self.name), self.get_node("Output"+self.name))
 
 class SoftMaxOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "SoftMax"):
@@ -209,18 +376,46 @@ class SoftMaxOP(Operation):
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape))
+        self.add_node(SoftMaxPrim("SoftMax"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("SoftMax"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("SoftMax"+self.name), self.get_node("Output"+self.name))
 
 class MulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Mul"):
         super().__init__(name, node, input_shape, output_shape, OperationType.MULT, label)
 
-class GatherOP(Operation):
+    def _build_primitives(self):
+        self.add_node(InputPrim("InputA"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("InputB"+self.name, self.input_shape[0]))
+        self.add_node(MulPrim("Mul"+self.name))
+        self.add_edge(self.get_node("InputA"+self.name), self.get_node("Mul"+self.name))
+        self.add_edge(self.get_node("InputB"+self.name), self.get_node("Mul"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Mul"+self.name), self.get_node("Output"+self.name))
+
+class GatherOP(Operation):  
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gather"):
         super().__init__(name, node, input_shape, output_shape, OperationType.GATHER, label)
         self.axis = [attr.i for attr in node.attribute if attr.name == "axis"]
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\naxis: {self.axis}"
+    
+    def _build_primitives(self):
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0]))
+        self.add_node(GatherPrim("Gather"+self.name))
+        self.add_edge(self.get_node("Input"+self.name), self.get_node("Gather"+self.name))
+        self.add_node(InputPrim("Indices"+self.name, self.input_shape[1], label="Indices"))
+        self.add_edge(self.get_node("Indices"+self.name), self.get_node("Gather"+self.name))
+
+        self.add_node(OutputPrim("Output"+self.name, self.output_shape))
+        self.add_edge(self.get_node("Gather"+self.name), self.get_node("Output"+self.name))
 
 ############has multiple primitives##############
 
@@ -336,34 +531,32 @@ class MatMulOP(Operation):
     
     def _build_primitives(self):
         # blue
-        self.add_node(Primitive("Weight" + self.name, label="Weight"))
+        weight=Primitive("Weight" + self.name, label="Weight")
+        self.add_node(weight)
         self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
         
-        self.add_node(Primitive("Input" + self.name, label="Input"))
+        input=Primitive("Input" + self.name, label="Input")
+        self.add_node(input)
         self.get_node("Input" + self.name).inputs.append(self.inputs[0])
         
         # green
-        self.add_node(Primitive("Output" + self.name, label="Output"))
+        output=Primitive("Output" + self.name, label="Output")
+        self.add_node(output)
         self.get_node("Output" + self.name).outputs = self.outputs
 
         # macs
-        if (self.output_shape[1]*self.input_shape[0][1]>10000):
-            print("operation too big")
-            return
-
         for i in range(self.output_shape[1]):
-            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            output_channel=Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i))
+            self.add_node(output_channel)
             for j in range(self.input_shape[0][1]):
                 mac=None
                 mac_node_name="MAC" + self.name + str(i) + str(j)
                 mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
                 self.add_node(mac) 
-                self.add_edge(self.get_node('Input' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node('Weight' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
-        
-        for i in range(self.output_shape[1]):
-            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
+                self.add_edge(input, mac)
+                self.add_edge(output, mac)
+                self.add_edge(mac, output_channel)
+                self.add_edge(output_channel, output)
 
 class GemmOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gemm"):
