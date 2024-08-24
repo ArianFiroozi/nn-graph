@@ -38,7 +38,7 @@ class OperationType(Enum):
     GEMM = "General Matrix Multiply"
     UNKNOWN = "Unknown"
 
-class Operation(nx.DiGraph):    
+class Operation(nx.DiGraph):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape=None, output_shape=None, type: OperationType = OperationType.UNKNOWN, label: str = "OP"):
         super().__init__()
         self.name = name
@@ -230,9 +230,11 @@ class ReshapeOP(Operation):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nallowzero: {self.allowzero}"
     
     def _build_primitives(self):
-        self.add_node(InputPrim("Input"+self.name, self.input_shape))
+        self.add_node(InputPrim("Input"+self.name, self.input_shape[0]))
+        self.add_node(InputPrim("Shape"+self.name, self.input_shape[1]))
         self.add_node(ReshapePrim("Reshape"+self.name))
         self.add_edge(self.get_node("Input"+self.name), self.get_node("Reshape"+self.name))
+        self.add_edge(self.get_node("Shape"+self.name), self.get_node("Reshape"+self.name))
 
         self.add_node(OutputPrim("Output"+self.name, self.output_shape))
         self.add_edge(self.get_node("Reshape"+self.name), self.get_node("Output"+self.name))
@@ -433,39 +435,53 @@ class MaxPoolOP(Operation):
     
     def _build_primitives(self):
         # blue
-        self.add_node(Primitive("Kernel" + self.name, None, label="Kernel"))
-        self.add_node(Primitive("Input" + self.name, None, label="Input"))
-        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
-        
+        kernel_name = "Kernel" + self.name
+        kernel_node = InputPrim(kernel_name, self.kernel_shape, label="Kernel")
+        self.add_node(kernel_node)
+
+        input_name = "Input" + self.name
+        input_node = InputPrim(input_name, self.input_shape, label="Input")
+        self.add_node(input_node)
+        input_node.inputs.append(self.inputs[0])
+
         # grey
-        self.add_node(Primitive("Padding" + self.name, None, label="Padding"))
-        self.add_node(Primitive("Dilation" + self.name, None, label="Dilation"))
-        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
-        
+        padding_name = "Padding" + self.name
+        padding_node = PaddingPrim(padding_name, label="Padding")
+        self.add_node(padding_node)
+
+        dilation_name = "Dilation" + self.name
+        dilation_node = DilationPrim(dilation_name, label="Dilation")
+        self.add_node(dilation_node)
+
+        self.add_edge(kernel_node, dilation_node)
+        self.add_edge(input_node, padding_node)
+
         # green
-        self.add_node(Primitive("Output" + self.name, None, label="Output"))
-        self.get_node("Output" + self.name).outputs = self.outputs
+        output_name = "Output" + self.name
+        output_node = OutputPrim(output_name, self.output_shape, label="Output")
+        self.add_node(output_node)
+        output_node.outputs = self.outputs
 
         # macs
         for i in range(self.output_shape[1]):
-            self.add_node(Primitive('Output_c' + str(i) + self.name,None, label="Output Channel" + str(i)))
-            mac=None
-            mac_node_name="MAC" + self.name + str(i)
-            if len(self.kernel_shape)==1:
-                mac=MacPrim(mac_node_name, self, label="MAC" + str(i))
-            elif len(self.kernel_shape)==2:
-                mac=Mac2dPrim(mac_node_name, self, label="MAC" + str(i))
+            output_channel_name = 'Output_c' + str(i) + self.name
+            output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
+            self.add_node(output_channel_node)
+
+            mac_node_name = "MAC" + self.name + str(i)
+            if len(self.kernel_shape) == 1:
+                mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i))
+            elif len(self.kernel_shape) == 2:
+                mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i))
             else:
                 print("invalid Convolution dims!")
-    
-            self.add_node(mac) 
-            self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
-            self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
-            self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
-        
-        for i in range(self.input_shape[1]):
-            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
+                continue
+
+            self.add_node(mac_node)
+            self.add_edge(padding_node, mac_node)
+            self.add_edge(dilation_node, mac_node)
+            self.add_edge(mac_node, output_channel_node)
+            self.add_edge(output_channel_node, output_node)
 
 class ConvOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Conv"):
@@ -480,50 +496,66 @@ class ConvOP(Operation):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}\nKernel Shape: {self.kernel_shape}\nStrides: {self.strides}\nPadding: {self.padding}"
 
     def _build_primitives(self):
-        weights=[]
+        weights = []
         weights.append(self.output_shape[1])
         weights.append(self.input_shape[1])
         weights += list(self.kernel_shape)
 
         # blue
-        self.add_node(Primitive("Weight" + self.name, list(weights), list(weights), label="Weight"))
-        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
-        self.add_node(Primitive("Kernel" + self.name, list(weights), [weights[0]*weights[1], 1], label="Kernel")) ##wrong
-        self.add_edge(self.get_node("Weight" + self.name), self.get_node("Kernel" + self.name))
+        weight_name = "Weight" + self.name
+        weight_node = InputPrim(weight_name, list(weights), label="Weight")
+        self.add_node(weight_node)
+        weight_node.inputs.append(self.inputs[1])
 
-        self.add_node(Primitive("Input" + self.name, self.input_shape, self.input_shape, label="Input"))
-        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
-        
+        kernel_name = "Kernel" + self.name
+        kernel_node = InputPrim(kernel_name, [weights[0] * weights[1], 1], label="Kernel")  # Corrected
+        self.add_node(kernel_node)
+        self.add_edge(weight_node, kernel_node)
+
+        input_name = "Input" + self.name
+        input_node = InputPrim(input_name, self.input_shape, label="Input")
+        self.add_node(input_node)
+        input_node.inputs.append(self.inputs[0])
+
         # grey
-        self.add_node(Primitive("Padding" + self.name, label="Padding"))
-        self.add_node(Primitive("Dilation" + self.name, label="Dilation"))
-        self.add_edge(self.get_node("Kernel" + self.name), self.get_node("Dilation" + self.name))
-        self.add_edge(self.get_node("Input" + self.name), self.get_node("Padding" + self.name))
-        
+        padding_name = "Padding" + self.name
+        padding_node = PaddingPrim(padding_name, label="Padding")
+        self.add_node(padding_node)
+
+        dilation_name = "Dilation" + self.name
+        dilation_node = DilationPrim(dilation_name, label="Dilation")
+        self.add_node(dilation_node)
+
+        self.add_edge(kernel_node, dilation_node)
+        self.add_edge(input_node, padding_node)
+
         # green
-        self.add_node(Primitive("Output" + self.name, None, self.output_shape, label="Output"))
-        self.get_node("Output" + self.name).outputs = self.outputs
-        
+        output_name = "Output" + self.name
+        output_node = OutputPrim(output_name, self.output_shape, label="Output")
+        self.add_node(output_node)
+        output_node.outputs = self.outputs
+
         # macs
         for i in range(self.output_shape[1]):
-            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            output_channel_name = 'Output_c' + str(i) + self.name
+            output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
+            self.add_node(output_channel_node)
+
             for j in range(self.input_shape[1]):
-                mac=None
-                mac_node_name="MAC" + self.name + str(i) + str(j)
-                if len(self.kernel_shape)==1:
-                    mac=MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
-                elif len(self.kernel_shape)==2:
-                    mac=Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                mac_node_name = "MAC" + self.name + str(i) + str(j)
+                if len(self.kernel_shape) == 1:
+                    mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                elif len(self.kernel_shape) == 2:
+                    mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
                 else:
                     print("invalid Convolution dims!")
-        
-                self.add_node(mac) 
-                self.add_edge(self.get_node('Padding' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node('Dilation' + self.name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
+                    continue
 
-        for i in range(self.output_shape[1]):
-            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('Output' + self.name))
+                self.add_node(mac_node)
+                self.add_edge(padding_node, mac_node)
+                self.add_edge(dilation_node, mac_node)
+                self.add_edge(mac_node, output_channel_node)
+            self.add_edge(output_channel_node, output_node)
 
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
@@ -531,22 +563,22 @@ class MatMulOP(Operation):
     
     def _build_primitives(self):
         # blue
-        weight=Primitive("Weight" + self.name, label="Weight")
+        weight=InputPrim("Weight" + self.name, None, label="Weight")
         self.add_node(weight)
         self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
         
-        input=Primitive("Input" + self.name, label="Input")
+        input=InputPrim("Input" + self.name, self.input_shape, label="Input")
         self.add_node(input)
         self.get_node("Input" + self.name).inputs.append(self.inputs[0])
         
         # green
-        output=Primitive("Output" + self.name, label="Output")
+        output=OutputPrim("Output" + self.name, self.output_shape, label="Output")
         self.add_node(output)
         self.get_node("Output" + self.name).outputs = self.outputs
 
         # macs
         for i in range(self.output_shape[1]):
-            output_channel=Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i))
+            output_channel=OutputPrim('Output_c' + str(i) + self.name, None, label="Output Channel" + str(i))
             self.add_node(output_channel)
             for j in range(self.input_shape[0][1]):
                 mac=None
@@ -554,7 +586,7 @@ class MatMulOP(Operation):
                 mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
                 self.add_node(mac) 
                 self.add_edge(input, mac)
-                self.add_edge(output, mac)
+                self.add_edge(weight, mac)
                 self.add_edge(mac, output_channel)
                 self.add_edge(output_channel, output)
 
@@ -573,57 +605,77 @@ class GemmOP(Operation):
 
     def _build_primitives(self):
         # blue
-        self.add_node(Primitive("Weight" + self.name, label="Weight"))
-        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
         weight_name = "Weight" + self.name
-        
-        self.add_node(Primitive("Input" + self.name, label="Input"))
-        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
-        input_name="Input" + self.name
+        weight_node = InputPrim(weight_name, None, label="Weight")
+        self.add_node(weight_node)
+        weight_node.inputs.append(self.inputs[1])
 
-        self.add_node(Primitive("Bias" + self.name, label="Bias"))
-        self.get_node("Bias" + self.name).inputs.append(self.inputs[2])
-        
+        input_name = "Input" + self.name
+        input_node = InputPrim(input_name, self.input_shape, label="Input")
+        self.add_node(input_node)
+        input_node.inputs.append(self.inputs[0])
+
+        bias_name = "Bias" + self.name
+        bias_node = InputPrim(bias_name, None, label="Bias")
+        self.add_node(bias_node)
+        bias_node.inputs.append(self.inputs[2])
+
         # green
-        self.add_node(Primitive("Output" + self.name, label="Output"))
-        self.add_node(Primitive("MatMulOut" + self.name, label="MatMul Output"))
-        self.get_node("Output" + self.name).outputs = self.outputs
-        
+        output_name = "Output" + self.name
+        output_node = OutputPrim(output_name, self.output_shape, label="Output")
+        self.add_node(output_node)
+
+        matmul_out_name = "MatMulOut" + self.name
+        matmul_out_node = OutputPrim(matmul_out_name, None, label="MatMul Output")
+        self.add_node(matmul_out_node)
+        output_node.outputs = self.outputs
+
         if self.transA is not None: 
-            self.add_node(Primitive("TransposeA" + self.name, label="Transpose"))
-            self.add_edge(self.get_node("Input" + self.name), self.get_node("TransposeA" + self.name))
-            input_name="TransposeA" + self.name
+            transpose_a_name = "TransposeA" + self.name
+            transpose_a_node = TransposePrim(transpose_a_name, label="Transpose")
+            self.add_node(transpose_a_node)
+            self.add_edge(input_node, transpose_a_node)
+            input_node = transpose_a_node
 
         if self.transB is not None: 
-            self.add_node(Primitive("TransposeB" + self.name, label="Transpose")) #transpose prim
-            self.add_edge(self.get_node("Weight" + self.name), self.get_node("TransposeB" + self.name))
-            weight_name="TransposeB" + self.name
+            transpose_b_name = "TransposeB" + self.name
+            transpose_b_node = TransposePrim(transpose_b_name, label="Transpose")
+            self.add_node(transpose_b_node)
+            self.add_edge(weight_node, transpose_b_node)
+            weight_node = transpose_b_node
 
         # macs
-        if (self.output_shape[1]*self.input_shape[1]>10000):
+        if (self.output_shape[1] * self.input_shape[1] > 10000):
             print("operation too big")
             return
 
         for i in range(self.output_shape[1]):
-            self.add_node(Primitive('Output_c' + str(i) + self.name, label="Output Channel" + str(i)))
+            output_channel_name = 'Output_c' + str(i) + self.name
+            output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
+            self.add_node(output_channel_node)
+
             for j in range(self.input_shape[1]):
-                mac=None
-                mac_node_name="MAC" + self.name + str(i) + str(j)
-                mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
-                self.add_node(mac) 
-                self.add_edge(self.get_node(input_name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node(weight_name), self.get_node(mac_node_name))
-                self.add_edge(self.get_node(mac_node_name), self.get_node('Output_c' + str(i) + self.name))
-        
-        for i in range(self.output_shape[1]):
-            self.add_edge(self.get_node('Output_c' + str(i) + self.name), self.get_node('MatMulOut' + self.name))
+                mac_node_name = "MAC" + self.name + str(i) + str(j)
+                mac_node = MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
+                self.add_node(mac_node) 
+                self.add_edge(input_node, mac_node)
+                self.add_edge(weight_node, mac_node)
+                self.add_edge(mac_node, output_channel_node)
+            self.add_edge(output_channel_node, matmul_out_node)
 
-        self.add_node(Primitive("MyMultA" + self.name, label="MyMult"))
-        self.add_node(Primitive("MyMultB" + self.name, label="MyMult"))
-        self.add_edge(self.get_node('MatMulOut'  + self.name), self.get_node('MyMultA' + self.name))
-        self.add_edge(self.get_node('Bias'  + self.name), self.get_node('MyMultB' + self.name))
+        mult_a_name = "MultA" + self.name
+        mult_a_node = MulPrim(mult_a_name)
+        self.add_node(mult_a_node)
+        self.add_edge(matmul_out_node, mult_a_node)
 
-        self.add_node(Primitive("ADD" + self.name, label="ADD"))
-        self.add_edge(self.get_node('MyMultA'  + self.name), self.get_node('ADD' + self.name))
-        self.add_edge(self.get_node('MyMultB'  + self.name), self.get_node('ADD' + self.name))
-        self.add_edge(self.get_node('ADD'  + self.name), self.get_node('Output' + self.name))
+        mult_b_name = "MultB" + self.name
+        mult_b_node = MulPrim(mult_b_name)
+        self.add_node(mult_b_node)
+        self.add_edge(bias_node, mult_b_node)
+
+        add_name = "ADD" + self.name
+        add_node = AddPrim(add_name, label="ADD")
+        self.add_node(add_node)
+        self.add_edge(mult_a_node, add_node)
+        self.add_edge(mult_b_node, add_node)
+        self.add_edge(add_node, output_node)

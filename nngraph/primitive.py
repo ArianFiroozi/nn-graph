@@ -24,6 +24,8 @@ class PrimitiveType(Enum):
     SQUEEZE=19
     UNSQUEEZE=20
     GATHER=21
+    PADDING=22
+    DILATION=23
 
     UNKNOWN=0
 
@@ -162,3 +164,11 @@ class UnsqueezePrim(Primitive):
 class GatherPrim(Primitive):
     def __init__(self, name, label:str="Gather"):
         super().__init__(name, None, type=PrimitiveType.GATHER, label=label)
+
+class PaddingPrim(Primitive):
+    def __init__(self, name, label:str="Padding"):
+        super().__init__(name, None, type=PrimitiveType.PADDING, label=label)
+
+class DilationPrim(Primitive):
+    def __init__(self, name, label:str="Dilation"):
+        super().__init__(name, None, type=PrimitiveType.DILATION, label=label)
