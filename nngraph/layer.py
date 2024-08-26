@@ -16,7 +16,7 @@ class LayerType(Enum):
     UNKNOWN=0
 
 class Layer(nx.DiGraph):
-    def __init__(self, name:str, type:LayerType=LayerType.UNKNOWN, model_onnx=None, label:str="Layer"):
+    def __init__(self, name:str, type:LayerType=LayerType.UNKNOWN, model_onnx=None, input_shape=[28,28], label:str="Layer"):
         super().__init__()
         self.name=name # unique
         self.label=label
@@ -25,7 +25,7 @@ class Layer(nx.DiGraph):
         self.outputs=[]
         self.model_onnx=model_onnx
         self.torch_model = convert(self.model_onnx)
-        self.dummy_input = torch.randn(28, 28)
+        self.dummy_input = torch.randn(input_shape)
 
         self._build_operations()
         self._set_layer_inout()
@@ -170,11 +170,6 @@ class Layer(nx.DiGraph):
         input_shape = self.get_operation_input_shape(self.torch_model, op.name[1:], self.dummy_input)
         
         return input_shape, output_shape
-
-    def get_output_shape(self):
-        output = self.outputs[0] ##only one
-        assert(isinstance(output, OutputOP))
-        return output.shape
 
     def get_visual(self):
         dot = Digraph('cluster_' + self.name)

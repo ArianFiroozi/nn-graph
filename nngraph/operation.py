@@ -463,18 +463,18 @@ class MaxPoolOP(Operation):
         output_node.outputs = self.outputs
 
         # macs
-        for i in range(self.output_shape[1]):
+        for i in range(self.output_shape[0]):
             output_channel_name = 'Output_c' + str(i) + self.name
             output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
             self.add_node(output_channel_node)
 
-            mac_node_name = "MAC" + self.name + str(i)
+            mac_node_name = "Pool" + self.name + str(i)
             if len(self.kernel_shape) == 1:
-                mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i))
+                mac_node = MacPrim(mac_node_name, self, label="Pool" + str(i))
             elif len(self.kernel_shape) == 2:
-                mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i))
+                mac_node = Mac2dPrim(mac_node_name, self, label="Pool" + str(i))
             else:
-                print("invalid Convolution dims!")
+                print("invalid MaxPool dims!")
                 continue
 
             self.add_node(mac_node)
@@ -508,7 +508,7 @@ class ConvOP(Operation):
         weight_node.inputs.append(self.inputs[1])
 
         kernel_name = "Kernel" + self.name
-        kernel_node = InputPrim(kernel_name, [weights[0] * weights[1], 1], label="Kernel")  # Corrected
+        kernel_node = InputPrim(kernel_name, [weights[0] * weights[1], weights[2]], label="Kernel")  # Corrected
         self.add_node(kernel_node)
         self.add_edge(weight_node, kernel_node)
 
@@ -537,24 +537,29 @@ class ConvOP(Operation):
 
         # macs
         for i in range(self.output_shape[1]):
-            output_channel_name = 'Output_c' + str(i) + self.name
-            output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
+            output_channel_node = OutputPrim('Output_c' + str(i) + self.name, None, label="Output Channel" + str(i))
+            add_i_node = AddPrim("Add" + str(i) + self.name, label="Add " + str(i))
             self.add_node(output_channel_node)
 
             for j in range(self.input_shape[1]):
                 mac_node_name = "MAC" + self.name + str(i) + str(j)
                 if len(self.kernel_shape) == 1:
                     mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                    weight_indices = [(i, j, k) for k in range(self.kernel_shape[0])]
                 elif len(self.kernel_shape) == 2:
                     mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                    weight_indices = [(i, j, ki, kj) for ki in range(self.kernel_shape[0]) for kj in range(self.kernel_shape[1])]
                 else:
                     print("invalid Convolution dims!")
                     continue
+                mac_node.weight_indices = weight_indices
 
                 self.add_node(mac_node)
                 self.add_edge(padding_node, mac_node)
                 self.add_edge(dilation_node, mac_node)
-                self.add_edge(mac_node, output_channel_node)
+                self.add_edge(mac_node, add_i_node)
+                
+            self.add_edge(add_i_node, output_channel_node)
             self.add_edge(output_channel_node, output_node)
 
 class MatMulOP(Operation):

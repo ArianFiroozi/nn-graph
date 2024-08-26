@@ -2,7 +2,7 @@ import torch
 from enum import Enum
 import onnx
 
-class PrimitiveType(Enum):
+class PrimitiveType(Enum):  
     MAC=1
     MAC2D=2
     INPUT=3
@@ -12,7 +12,7 @@ class PrimitiveType(Enum):
     SUB=7
     DIV=8
     MAX=9
-    FLOOR=10
+    FLOOR=10                            
     RESHAPE=11
     MOD=12
     SHAPE=13
@@ -26,6 +26,7 @@ class PrimitiveType(Enum):
     GATHER=21
     PADDING=22
     DILATION=23
+    POOL=24
 
     UNKNOWN=0
 
@@ -76,7 +77,7 @@ class OutputPrim(Primitive):
 class MacPrim(Primitive):
     def __init__(self, name, conv, label:str="Mac"):
         super().__init__(name, None, type=PrimitiveType.MAC, label=label)
-
+        self.weight_indices=[None]
         if conv is not None:  # matmul mac is probably different from conv mac
             self.kernel_shape = conv.kernel_shape
             self.strides = conv.strides
@@ -84,7 +85,7 @@ class MacPrim(Primitive):
             self.dilations = conv.dilations
 
     def get_label(self):
-        return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
+        return f"{self.label}"
 
 class Mac2dPrim(Primitive):
     def __init__(self, name, conv, label:str="Mac2d"):
@@ -93,6 +94,18 @@ class Mac2dPrim(Primitive):
         self.strides = conv.strides
         self.padding = conv.padding
         self.dilations = conv.dilations
+        self.weight_indices=[None]
+
+    def get_label(self):
+        return f"{self.label}"
+
+class PoolPrim(Primitive):
+    def __init__(self, name, pool, label:str="Pool"):
+        super().__init__(name, None, type=PrimitiveType.POOL, label=label)
+        self.kernel_shape = pool.kernel_shape
+        self.strides = pool.strides
+        self.padding = pool.padding
+        self.dilations = pool.dilations
 
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"

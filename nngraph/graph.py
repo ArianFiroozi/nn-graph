@@ -11,8 +11,7 @@ import onnx2torch
 
 class Graph(nx.DiGraph):
     def __init__(self, input_model_path='./models/modelconv2d.onnx', output_path='./nngraph/outputs',
-                config_file='./nngraph/layer_config.json', excluded_params = ["weight", "in_proj_weight", "in_proj_bias"],
-                input_shape=[3,3]):
+                config_file='./nngraph/layer_config.json', input_shape=[3,3]):
         super().__init__()
 
         self.input_model_path=input_model_path
@@ -58,7 +57,7 @@ class Graph(nx.DiGraph):
         pass
 
     def _build_layer(self, name)->Layer:
-        return Layer(name, model_onnx=self.model_onnx, label=name)
+        return Layer(name, model_onnx=self.model_onnx, input_shape=self.input_shape, label=name)
 
     def __add_edges_between_layers(self):
         all_nodes={}
