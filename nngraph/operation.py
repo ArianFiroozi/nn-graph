@@ -463,16 +463,16 @@ class MaxPoolOP(Operation):
         output_node.outputs = self.outputs
 
         # macs
-        for i in range(self.output_shape[0]):
+        for i in range(self.output_shape[1]):
             output_channel_name = 'Output_c' + str(i) + self.name
             output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
             self.add_node(output_channel_node)
 
             mac_node_name = "Pool" + self.name + str(i)
             if len(self.kernel_shape) == 1:
-                mac_node = MacPrim(mac_node_name, self, label="Pool" + str(i))
+                mac_node = PoolPrim(mac_node_name, self, label="Pool" + str(i))
             elif len(self.kernel_shape) == 2:
-                mac_node = Mac2dPrim(mac_node_name, self, label="Pool" + str(i))
+                mac_node = Pool2dPrim(mac_node_name, self, label="Pool" + str(i))
             else:
                 print("invalid MaxPool dims!")
                 continue

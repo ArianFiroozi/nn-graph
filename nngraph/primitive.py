@@ -74,6 +74,29 @@ class OutputPrim(Primitive):
     def get_label(self):
         return f"{self.label}\nshape: {self.shape}"
 
+class PoolPrim(Primitive):
+    def __init__(self, name, conv, label:str="Mac"):
+        super().__init__(name, None, type=PrimitiveType.MAC, label=label)
+        if conv is not None:  # matmul mac is probably different from conv mac
+            self.kernel_shape = conv.kernel_shape
+            self.strides = conv.strides
+            self.padding = conv.padding
+            self.dilations = conv.dilations
+
+    def get_label(self):
+        return f"{self.label}"
+
+class Pool2dPrim(Primitive):
+    def __init__(self, name, conv, label:str="Mac2d"):
+        super().__init__(name, None, type=PrimitiveType.MAC2D, label=label)
+        self.kernel_shape = conv.kernel_shape
+        self.strides = conv.strides
+        self.padding = conv.padding
+        self.dilations = conv.dilations
+
+    def get_label(self):
+        return f"{self.label}"
+
 class MacPrim(Primitive):
     def __init__(self, name, conv, label:str="Mac"):
         super().__init__(name, None, type=PrimitiveType.MAC, label=label)
