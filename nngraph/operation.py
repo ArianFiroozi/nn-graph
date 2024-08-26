@@ -2,6 +2,7 @@ import torch
 from enum import Enum
 import onnx
 import networkx as nx
+import numpy as np
 from nngraph.primitive import *
 from graphviz import Digraph
 
@@ -536,31 +537,38 @@ class ConvOP(Operation):
         output_node.outputs = self.outputs
 
         # macs
-        for i in range(self.output_shape[1]):
-            output_channel_node = OutputPrim('Output_c' + str(i) + self.name, None, label="Output Channel" + str(i))
-            add_i_node = AddPrim("Add" + str(i) + self.name, label="Add " + str(i))
-            self.add_node(output_channel_node)
+        for batch in range(self.output_shape[0]):
+            batch_node = OutputPrim('batch' + str(batch) + self.name, None, label="batch" + str(batch))
+            for i in range(self.output_shape[1]):
+                output_channel_node = OutputPrim('Output_c' + str(i) + str(batch) + self.name, None, label="Output Channel" + str(i))
+                add_i_node = AddPrim("Add" + str(i) + str(batch) + self.name, label="Add " + str(i))
+                self.add_node(output_channel_node)
 
-            for j in range(self.input_shape[1]):
-                mac_node_name = "MAC" + self.name + str(i) + str(j)
-                if len(self.kernel_shape) == 1:
-                    mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
-                    weight_indices = [(i, j, k) for k in range(self.kernel_shape[0])]
-                elif len(self.kernel_shape) == 2:
-                    mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
-                    weight_indices = [(i, j, ki, kj) for ki in range(self.kernel_shape[0]) for kj in range(self.kernel_shape[1])]
-                else:
-                    print("invalid Convolution dims!")
-                    continue
-                mac_node.weight_indices = weight_indices
+                for j in range(self.input_shape[1]):
+                    for k in range(self.output_shape[1]):
+                        mac_node_name = "MAC" + self.name + str(batch) + str(i) + str(j) + str(k)
+                        if len(self.kernel_shape) == 1:
+                            mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                            weight_indices = [(i, j, k) for k in range(self.kernel_shape[0])]
+                        elif len(self.kernel_shape) == 2:
+                            mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
+                            weight_indices = [(i, j, ki, kj) for ki in range(self.kernel_shape[0]) for kj in range(self.kernel_shape[1])]
+                        else:
+                            print("invalid Convolution dims!")
+                            continue
+                        mac_node.weight_indices = weight_indices
+                        mac_node.input_channel=j
+                        mac_node.output_index=k
+                        mac_node.batch=batch
 
-                self.add_node(mac_node)
-                self.add_edge(padding_node, mac_node)
-                self.add_edge(dilation_node, mac_node)
-                self.add_edge(mac_node, add_i_node)
-                
-            self.add_edge(add_i_node, output_channel_node)
-            self.add_edge(output_channel_node, output_node)
+                        self.add_node(mac_node)
+                        self.add_edge(padding_node, mac_node)
+                        self.add_edge(dilation_node, mac_node)
+                        self.add_edge(mac_node, add_i_node)
+                    
+                self.add_edge(add_i_node, output_channel_node)
+                self.add_edge(output_channel_node, batch_node)
+            self.add_edge(batch_node, output_node)
 
 class MatMulOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "MatMul"):
@@ -568,13 +576,13 @@ class MatMulOP(Operation):
     
     def _build_primitives(self):
         # blue
-        weight=InputPrim("Weight" + self.name, None, label="Weight")
+        weight=InputPrim("InputB" + self.name, self.input_shape[1], label="Input B")
         self.add_node(weight)
-        self.get_node("Weight" + self.name).inputs.append(self.inputs[1])
+        self.get_node("InputB" + self.name).inputs.append(self.inputs[1])
         
-        input=InputPrim("Input" + self.name, self.input_shape, label="Input")
+        input=InputPrim("InputA" + self.name, self.input_shape[0], label="Input A")
         self.add_node(input)
-        self.get_node("Input" + self.name).inputs.append(self.inputs[0])
+        self.get_node("InputA" + self.name).inputs.append(self.inputs[0])
         
         # green
         output=OutputPrim("Output" + self.name, self.output_shape, label="Output")
@@ -582,18 +590,14 @@ class MatMulOP(Operation):
         self.get_node("Output" + self.name).outputs = self.outputs
 
         # macs
-        for i in range(self.output_shape[1]):
-            output_channel=OutputPrim('Output_c' + str(i) + self.name, None, label="Output Channel" + str(i))
-            self.add_node(output_channel)
-            for j in range(self.input_shape[0][1]):
-                mac=None
-                mac_node_name="MAC" + self.name + str(i) + str(j)
-                mac=MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
-                self.add_node(mac) 
-                self.add_edge(input, mac)
-                self.add_edge(weight, mac)
-                self.add_edge(mac, output_channel)
-                self.add_edge(output_channel, output)
+        for i in range(np.prod(np.array(self.output_shape))):
+            mac=None
+            mac_node_name="Mac" + self.name + str(i)
+            mac=MacPrim(mac_node_name, label="Mac")
+            self.add_node(mac) 
+            self.add_edge(input, mac)
+            self.add_edge(weight, mac)
+            self.add_edge(mac, output)
 
 class GemmOP(Operation):
     def __init__(self, name: str, node: onnx.NodeProto, input_shape, output_shape, label: str = "Gemm"):
@@ -610,13 +614,11 @@ class GemmOP(Operation):
 
     def _build_primitives(self):
         # blue
-        weight_name = "Weight" + self.name
-        weight_node = InputPrim(weight_name, None, label="Weight")
+        weight_node = InputPrim("InputA" + self.name, None, label="Input A")
         self.add_node(weight_node)
         weight_node.inputs.append(self.inputs[1])
 
-        input_name = "Input" + self.name
-        input_node = InputPrim(input_name, self.input_shape, label="Input")
+        input_node = InputPrim("InputB" + self.name, self.input_shape, label="Input B")
         self.add_node(input_node)
         input_node.inputs.append(self.inputs[0])
 
@@ -650,23 +652,14 @@ class GemmOP(Operation):
             weight_node = transpose_b_node
 
         # macs
-        if (self.output_shape[1] * self.input_shape[1] > 10000):
-            print("operation too big")
-            return
-
-        for i in range(self.output_shape[1]):
-            output_channel_name = 'Output_c' + str(i) + self.name
-            output_channel_node = OutputPrim(output_channel_name, None, label="Output Channel" + str(i))
-            self.add_node(output_channel_node)
-
-            for j in range(self.input_shape[1]):
-                mac_node_name = "MAC" + self.name + str(i) + str(j)
-                mac_node = MacPrim(mac_node_name, None, label="MAC" + str(i) + "," + str(j))
-                self.add_node(mac_node) 
-                self.add_edge(input_node, mac_node)
-                self.add_edge(weight_node, mac_node)
-                self.add_edge(mac_node, output_channel_node)
-            self.add_edge(output_channel_node, matmul_out_node)
+        for i in range(np.prod(np.array(self.output_shape))):
+            mac=None
+            mac_node_name="Mac" + self.name + str(i)
+            mac=MacPrim(mac_node_name, label="Mac")
+            self.add_node(mac) 
+            self.add_edge(input_node, mac)
+            self.add_edge(weight_node, mac)
+            self.add_edge(mac, output_node)
 
         mult_a_name = "MultA" + self.name
         mult_a_node = MulPrim(mult_a_name)

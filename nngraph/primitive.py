@@ -27,6 +27,7 @@ class PrimitiveType(Enum):
     PADDING=22
     DILATION=23
     POOL=24
+    POOL2D=25
 
     UNKNOWN=0
 
@@ -74,29 +75,6 @@ class OutputPrim(Primitive):
     def get_label(self):
         return f"{self.label}\nshape: {self.shape}"
 
-class PoolPrim(Primitive):
-    def __init__(self, name, conv, label:str="Mac"):
-        super().__init__(name, None, type=PrimitiveType.MAC, label=label)
-        if conv is not None:  # matmul mac is probably different from conv mac
-            self.kernel_shape = conv.kernel_shape
-            self.strides = conv.strides
-            self.padding = conv.padding
-            self.dilations = conv.dilations
-
-    def get_label(self):
-        return f"{self.label}"
-
-class Pool2dPrim(Primitive):
-    def __init__(self, name, conv, label:str="Mac2d"):
-        super().__init__(name, None, type=PrimitiveType.MAC2D, label=label)
-        self.kernel_shape = conv.kernel_shape
-        self.strides = conv.strides
-        self.padding = conv.padding
-        self.dilations = conv.dilations
-
-    def get_label(self):
-        return f"{self.label}"
-
 class MacPrim(Primitive):
     def __init__(self, name, conv, label:str="Mac"):
         super().__init__(name, None, type=PrimitiveType.MAC, label=label)
@@ -133,6 +111,18 @@ class PoolPrim(Primitive):
     def get_label(self):
         return f"{self.label}\ninput shape: {self.input_shape}\noutput shape: {self.output_shape}"
 
+
+class Pool2dPrim(Primitive):
+    def __init__(self, name, conv, label:str="Pool2d"):
+        super().__init__(name, None, type=PrimitiveType.POOL2D, label=label)
+        self.kernel_shape = conv.kernel_shape
+        self.strides = conv.strides
+        self.padding = conv.padding
+        self.dilations = conv.dilations
+
+    def get_label(self):
+        return f"{self.label}"
+
 class DivPrim(Primitive):
     def __init__(self, name, label:str="Div"):
         super().__init__(name, None, type=PrimitiveType.DIV, label=label)
@@ -145,7 +135,7 @@ class SubPrim(Primitive):
     def __init__(self, name, label:str="Sub"):
         super().__init__(name, None, type=PrimitiveType.SUB, label=label)
 
-class MulPrim(Primitive):
+class MulPrim(Primitive): # element-wise
     def __init__(self, name, label:str="Mul"):
         super().__init__(name, None, type=PrimitiveType.MUL, label=label)
 
