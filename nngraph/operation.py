@@ -593,7 +593,7 @@ class MatMulOP(Operation):
         for i in range(np.prod(np.array(self.output_shape))):
             mac=None
             mac_node_name="Mac" + self.name + str(i)
-            mac=MacPrim(mac_node_name, label="Mac")
+            mac=MacPrim(mac_node_name, None, label="Mac")
             self.add_node(mac) 
             self.add_edge(input, mac)
             self.add_edge(weight, mac)
@@ -655,7 +655,7 @@ class GemmOP(Operation):
         for i in range(np.prod(np.array(self.output_shape))):
             mac=None
             mac_node_name="Mac" + self.name + str(i)
-            mac=MacPrim(mac_node_name, label="Mac")
+            mac=MacPrim(mac_node_name, None, label="Mac")
             self.add_node(mac) 
             self.add_edge(input_node, mac)
             self.add_edge(weight_node, mac)

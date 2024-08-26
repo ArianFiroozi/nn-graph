@@ -6,6 +6,7 @@ import networkx as nx
 from nngraph.operation import *
 import numpy as np
 from onnx2torch import convert
+import json
 
 class LayerType(Enum):
     CONV1D=1
@@ -84,11 +85,10 @@ class Layer(nx.DiGraph):
         return name.split('/')[-1]
 
     def _onnx_node_to_op(self, node):
-        known_ops={"Constant":ConstOP, "MatMul":MatMulOP, "Transpose":TransposeOP, "Div":DivOP, "Clip":ClipOP,
-                    "Mul":MulOP, "Floor":FloorOP, "Add":AddOP, "Sub":SubOP, "Relu":ReluOP, "Reshape":ReshapeOP,
-                    "Conv":ConvOP, "MaxPool":MaxPoolOP, "Mod":ModOP, "Shape":ShapeOP,"Slice":SliceOP,"Concat":ConcatOP, 
-                    "Squeeze":SqueezeOP,"Unsqueeze":UnsqueezeOP,"Softmax":SoftMaxOP,"Gather":GatherOP,"Gemm":GemmOP}
-        
+        with open("./nngraph/operation_config.json", 'r') as f:
+            op_config = json.load(f)
+
+        known_ops = {name: globals()[class_name] for name, class_name in op_config.items()}
         input_shape, output_shape = self._get_in_out_shape(node)
 
         if node.op_type not in known_ops.keys():
@@ -179,7 +179,7 @@ class Layer(nx.DiGraph):
                 penwidth='2')
 
         for node in self.nodes():
-            if isinstance(node, Layer): ## idk
+            if isinstance(node, Layer):
                 dot.subgraph(node.get_visual)
                 continue
 

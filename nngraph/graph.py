@@ -8,10 +8,10 @@ import json
 from torchviz import make_dot
 import onnx
 import onnx2torch 
+import shutil
 
 class Graph(nx.DiGraph):
-    def __init__(self, input_model_path='./models/modelconv2d.onnx', output_path='./nngraph/outputs',
-                config_file='./nngraph/layer_config.json', input_shape=[3,3]):
+    def __init__(self, input_model_path='./models/model.onnx', output_path='./nngraph/outputs', input_shape=[3,3]):
         super().__init__()
 
         self.input_model_path=input_model_path
@@ -20,8 +20,13 @@ class Graph(nx.DiGraph):
         self.output_path=output_path
         self.input_shape=input_shape
 
-        with open(config_file, 'r') as f: # add if model has type
-            self.layer_config = json.load(f)
+        # with open(config_file, 'r') as f: # add if model has type
+        #     self.layer_config = json.load(f)
+
+        try:
+            shutil.rmtree(output_path)
+        except:
+            pass
 
         self._read_model()
         self._build_graph()
