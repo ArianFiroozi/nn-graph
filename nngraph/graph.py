@@ -22,12 +22,6 @@ class Graph(nx.DiGraph):
 
         # with open(config_file, 'r') as f: # add if model has type
         #     self.layer_config = json.load(f)
-
-        try:
-            shutil.rmtree(output_path)
-        except:
-            pass
-
         self._read_model()
         self._build_graph()
     
@@ -36,11 +30,17 @@ class Graph(nx.DiGraph):
         if append_latest and self.__len__()>1:
             self.add_edge(layer, self.nodes[-1])
 
-    def visualize(self, operational=True, layers=True):
+    def visualize(self, operational=True, layers=True, prims=True):
+        try:
+            shutil.rmtree(output_path)
+        except:
+            pass
         if operational:
             self._render_operational()
         if layers:
             self._render_layers()
+        if prims:
+            self._render_prims()
 
     def get_node(self, name:str)->Layer:
         for node in self.nodes():
@@ -107,6 +107,12 @@ class Graph(nx.DiGraph):
                                     break
 
         dot.render(self.output_path + '/operational_graph', format='png', cleanup=True) 
+
+    def _render_prims(self):
+        dot = Digraph()
+        for layer in self.nodes:
+            for operation in layer:
+                operation.render()
 
     def _render_layers(self, show_sublayers=True): #TODO: complete if layer file added
         dot = Digraph()

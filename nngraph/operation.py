@@ -55,7 +55,6 @@ class Operation(nx.DiGraph):
         self.output_shape = None if output_shape is None else list(output_shape)
 
         self._build_primitives()
-        self.render()
 
     def _build_primitives(self):
         pass
