@@ -539,27 +539,29 @@ class ConvOP(Operation):
         # macs
         for batch in range(self.output_shape[0]):
             batch_node = OutputPrim('batch' + str(batch) + self.name, None, label="batch" + str(batch))
-            for i in range(self.output_shape[1]):
+            for i in range(self.output_shape[1]): #output channel
                 output_channel_node = OutputPrim('Output_c' + str(i) + str(batch) + self.name, None, label="Output Channel" + str(i))
                 add_i_node = AddPrim("Add" + str(i) + str(batch) + self.name, label="Add " + str(i))
                 self.add_node(output_channel_node)
 
-                for j in range(self.input_shape[1]):
-                    for k in range(self.output_shape[1]):
+                for j in range(self.input_shape[1]): #input channel
+                    output_size=self.output_shape[2] if len(self.output_shape)==3 else self.output_shape[2]*self.output_shape[3]
+                    for k in range(output_size): #output index
                         mac_node_name = "MAC" + self.name + str(batch) + str(i) + str(j) + str(k)
                         if len(self.kernel_shape) == 1:
                             mac_node = MacPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
-                            weight_indices = [(i, j, k) for k in range(self.kernel_shape[0])]
+                            weight_indices = [i, j, range(self.kernel_shape[0])]
+                            input_indices=[batch, j, range(k*self.strides[0], k*self.strides[0]+self.kernel_shape[0])]
                         elif len(self.kernel_shape) == 2:
                             mac_node = Mac2dPrim(mac_node_name, self, label="MAC" + str(i) + "," + str(j))
-                            weight_indices = [(i, j, ki, kj) for ki in range(self.kernel_shape[0]) for kj in range(self.kernel_shape[1])]
+                            weight_indices = [i, j, range(self.kernel_shape[0]), range(self.kernel_shape[1])]
+                            input_indices=[batch, j, range(k//self.input_shape[2]*self.strides[0], k//self.input_shape[2]*self.strides[0]+self.kernel_shape[0]),range(k%self.input_shape[2]*self.strides[1], k%self.input_shape[2]*self.strides[1]+self.kernel_shape[0])]
                         else:
                             print("invalid Convolution dims!")
                             continue
-                        mac_node.weight_indices = weight_indices
-                        mac_node.input_channel=j
-                        mac_node.output_index=k
-                        mac_node.batch=batch
+                        mac_node.inputB_indices = weight_indices
+                        mac_node.inputA_indices = input_indices
+                        # mac_node.output_index=k
 
                         self.add_node(mac_node)
                         self.add_edge(padding_node, mac_node)
@@ -594,6 +596,8 @@ class MatMulOP(Operation):
             mac=None
             mac_node_name="Mac" + self.name + str(i)
             mac=MacPrim(mac_node_name, None, label="Mac")
+            mac.inputB_indices=[range(self.input_shape[0][1]),i//self.output_shape[0]]
+            mac.inputA_indices=[i%self.output_shape[0],range(self.input_shape[0][1])]
             self.add_node(mac) 
             self.add_edge(input, mac)
             self.add_edge(weight, mac)
@@ -656,6 +660,8 @@ class GemmOP(Operation):
             mac=None
             mac_node_name="Mac" + self.name + str(i)
             mac=MacPrim(mac_node_name, None, label="Mac")
+            mac.inputB_indices=[range(self.input_shape[1][0]),i//self.output_shape[0]]
+            mac.inputA_indices=[i%self.output_shape[0],range(self.input_shape[1][0])]
             self.add_node(mac) 
             self.add_edge(input_node, mac)
             self.add_edge(weight_node, mac)
