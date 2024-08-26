@@ -19,12 +19,39 @@ class Graph(nx.DiGraph):
         self.layer_names=[]
         self.output_path=output_path
         self.input_shape=input_shape
-
-        # with open(config_file, 'r') as f: # add if model has type
-        #     self.layer_config = json.load(f)
         self._read_model()
         self._build_graph()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['_node']
+        del state['_adj']
+        del state['_succ']
+        del state['_pred']
+        del state["nodes"]
+        del state["graph"]
+        try:
+            del state['succ']
+        except:
+            pass
+        try:
+            del state['edges']
+        except:
+            pass
+        print(state.keys())
+        return state
     
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        state['_node']=[]
+        state['_adj']=[]
+        state['_succ']=[]
+        state['_pred']=[]
+        state["nodes"]=[]
+        state["graph"]=[]
+        super().__init__()
+        self._build_graph()
+
     def add_layer(self, layer:Layer, append_latest=False):
         self.add_node(layer)
         if append_latest and self.__len__()>1:

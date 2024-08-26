@@ -1,5 +1,6 @@
 from nngraph.graph import Graph
 import argparse
+import pickle
 
 def str_to_int_list(input):
     return [int(x) for x in input.strip('[]').split(',')]
@@ -18,7 +19,9 @@ args.do_lower_case = True
 g=Graph(args.input_model_path, args.output_path, args.input_shape)
 g.visualize(args.visualize_operational, args.visualize_layers, args.visualize_primitives)
 
-# import pickle
+with open("test.pkl", 'wb') as f:
+    pickle.dump(g, f)   
 
-# with open("test", 'wb') as f:
-#     pickle.dump(g, f)
+with open('test.pkl', 'rb') as f:
+    load_test = pickle.load(f)
+    load_test.visualize(0,0,1)

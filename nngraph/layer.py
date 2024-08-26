@@ -31,6 +31,41 @@ class Layer(nx.DiGraph):
         self._build_operations()
         self._set_layer_inout()
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['inputs']
+        del state['outputs']
+        del state['_node']
+        del state['_adj']
+        del state['_succ']
+        del state['_pred']
+        del state['succ']
+        del state["_Layer__output_shape"]
+        del state["_Layer__input_shape"]
+        del state["nodes"]
+        del state["edges"]
+        super().__init__()
+
+        return state
+
+    def __setstate__(self, state):
+        return
+        self.__dict__.update(state)
+        state['inputs']=[]
+        state['outputs']=[]
+        state['_node']=[]
+        state['_adj']=[]
+        state['_succ']=[]
+        state['_pred']=[]
+        state['succ']=[]
+        state["_Layer__output_shape"]=[]
+        state["_Layer__input_shape"]=[]
+        state["nodes"]=[]
+        state["edges"]=[]
+        
+        self._build_operations()
+        self._set_layer_inout()
+
     def __hash__(self):
         return hash(self.name)
 
@@ -99,37 +134,37 @@ class Layer(nx.DiGraph):
         
         self._add_tensors()
     
-    def get_operation_output_shape(self, model, layer_name, input_tensor):
-        output_shape = []
+    def out_hook(self, module, input, output):
+        self.__output_shape.append(list(output.shape))
 
-        def hook(module, input, output):
-            output_shape.append(list(output.shape))
+    def get_operation_output_shape(self, model, layer_name, input_tensor):
+        self.__output_shape = []
 
         layer = dict(model.named_modules())[layer_name]
-        layer.register_forward_hook(hook)
+        layer.register_forward_hook(self.out_hook)
 
         with torch.no_grad():
             model(input_tensor)
 
-        return output_shape[0]
+        return self.__output_shape[0]
+
+    def in_hook(self, module, input, output):
+        for inp in input:
+            if inp is not None:
+                self.__input_shape.append(list(inp.shape))
+            else:
+                self.__input_shape.append(None)
 
     def get_operation_input_shape(self, model, layer_name, input_tensor):
-        input_shape = []
-
-        def hook(module, input, output):
-            for inp in input:
-                if inp is not None:
-                    input_shape.append(list(inp.shape))
-                else:
-                    input_shape.append(None)
+        self.__input_shape = []
 
         layer = dict(model.named_modules())[layer_name]
-        layer.register_forward_hook(hook)
+        layer.register_forward_hook(self.in_hook)
 
         with torch.no_grad():
             model(input_tensor)
 
-        return input_shape[0] if len(input_shape)==1 else input_shape
+        return self.__input_shape[0] if len(self.__input_shape)==1 else self.__input_shape
 
     def _build_operations(self):
         for node in self.model_onnx.graph.node:
